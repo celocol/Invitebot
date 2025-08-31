@@ -1,19 +1,16 @@
 {
   "name": "invitebor",
   "version": "1.0.0",
+  "description": "Telegram invite tracker bot for groups",
   "main": "index.js",
+  "author": "TuNombre",
+  "license": "MIT",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node index.js",
-    "build": "npm install"
+    "start": "node index.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "dependencies": {
-    "pg": "^8.11.3",
     "dotenv": "^17.2.1",
+    "pg": "^8.11.3",
     "telegraf": "^4.16.3"
   }
 }
