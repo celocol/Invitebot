@@ -274,77 +274,83 @@ bot.command('whoadded', async (ctx) => {
 // ====== START (Webhook o Polling) + Healthcheck ======
 async function start() {
   console.log('BOOT:', {
-    MODE,
+    MODE: (process.env.MODE || '').trim(),
     PORT: process.env.PORT,
-    WEBHOOK_DOMAIN,
+    WEBHOOK_DOMAIN: (process.env.WEBHOOK_DOMAIN || '').trim(),
     NODE_ENV: process.env.NODE_ENV
   });
 
-  // HTTP primero (evita 502 en /health)
+  const path = '/telegram/webhook';
+  const usingWebhook = (MODE || '').toString().trim().toLowerCase() === 'webhook';
+  const webhookUrl = usingWebhook && WEBHOOK_DOMAIN
+    ? `${WEBHOOK_DOMAIN.replace(/\/+$/, '')}${path}`
+    : null;
+
+  // Un SOLO listener con routing interno (webhook, health, default)
   serverRef = http.createServer((req, res) => {
+    // 1) Webhook
+    if (usingWebhook && req.method === 'POST' && req.url === path) {
+      let body = '';
+      console.log('[WEBHOOK] hit', new Date().toISOString());
+
+      req.on('data', (chunk) => {
+        body += chunk;
+        if (body.length > 1e6) {
+          console.warn('[WEBHOOK] payload too large');
+          res.writeHead(413, { 'Content-Type': 'text/plain' });
+          return res.end('Payload too large');
+        }
+      });
+
+      req.on('end', () => {
+        // ACK inmediato para evitar 502/504
+        try {
+          res.writeHead(200, { 'Content-Type': 'text/plain' });
+          res.end('OK');
+        } catch (_) {}
+
+        // Procesar en background
+        try {
+          const update = JSON.parse(body || '{}');
+          console.log('[WEBHOOK] update (first 200 chars):', body.slice(0, 200));
+          bot.handleUpdate(update).catch((e) => console.error('handleUpdate error:', e));
+        } catch (e) {
+          console.error('Webhook JSON parse error:', e, 'body:', body.slice(0, 200));
+        }
+      });
+
+      return; // importante: no seguir al handler por defecto
+    }
+
+    // 2) Health
     if (req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       return res.end('ok');
     }
+
+    // 3) Default
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('InviteTracker up');
   });
 
-  // Bind a 0.0.0.0 (PaaS-friendly)
+  // Bind PaaS-friendly
   serverRef.listen(PORT, '0.0.0.0', () => {
     console.log(`HTTP health on :${PORT} (0.0.0.0)`);
   });
 
-  if (MODE === 'webhook') {
+  if (usingWebhook) {
     if (!WEBHOOK_DOMAIN) {
       console.error('❌ WEBHOOK_DOMAIN required in webhook mode');
     } else {
-      const path = '/telegram/webhook';
-      const webhookUrl = `${WEBHOOK_DOMAIN}${path}`;
       try {
         await bot.telegram.setWebhook(webhookUrl);
         console.log('🔗 Webhook set to:', webhookUrl);
       } catch (e) {
         console.error('Failed to set webhook:', e);
       }
-
-      // ACK inmediato + proceso en background
-      serverRef.on('request', (req, res) => {
-        if (req.method === 'POST' && req.url === path) {
-          let body = '';
-          console.log('[WEBHOOK] hit', new Date().toISOString());
-          req.on('data', (chunk) => {
-            body += chunk;
-            if (body.length > 1e6) {
-              console.warn('[WEBHOOK] payload too large');
-              res.writeHead(413, { 'Content-Type': 'text/plain' });
-              return res.end('Payload too large');
-            }
-          });
-          req.on('end', () => {
-            // Responder YA para evitar 502 a Telegram
-            try {
-              res.writeHead(200, { 'Content-Type': 'text/plain' });
-              res.end('OK');
-            } catch (_) {}
-
-            // Procesar el update en segundo plano
-            try {
-              const update = JSON.parse(body);
-              console.log('[WEBHOOK] update received (first 200 chars):', body.slice(0, 200));
-              bot.handleUpdate(update).catch((e) => {
-                console.error('handleUpdate error:', e);
-              });
-            } catch (e) {
-              console.error('Webhook JSON parse error:', e, 'body:', body.slice(0, 200));
-            }
-          });
-          return;
-        }
-      });
     }
   } else {
-    // Polling: elimina webhook y arranca polling
+    // Polling
     try {
       await bot.telegram.deleteWebhook({ drop_pending_updates: false });
       console.log('🧹 Webhook eliminado (polling activo)');
