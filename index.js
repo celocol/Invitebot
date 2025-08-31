@@ -5,7 +5,7 @@ const http = require('http');
 const pg = require('pg');
 const { Pool, types } = pg;
 
-// Parse PG int8 (OID 20) as string para evitar precision loss en JS
+// Evita pérdida de precisión con BIGINT (OID 20)
 types.setTypeParser(20, (val) => val);
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -14,18 +14,12 @@ const MODE = (process.env.MODE || 'polling').toLowerCase(); // 'polling' | 'webh
 const PORT = Number(process.env.PORT || 3000);
 const WEBHOOK_DOMAIN = process.env.WEBHOOK_DOMAIN;
 
-if (!BOT_TOKEN) {
-  console.error('❌ BOT_TOKEN is missing in .env file');
-  // no salimos: dejamos el server de health vivo para ver logs
-}
-if (!DATABASE_URL) {
-  console.error('❌ DATABASE_URL is missing in .env file');
-  // tampoco salimos
-}
+if (!BOT_TOKEN) console.error('❌ BOT_TOKEN is missing in env');
+if (!DATABASE_URL) console.error('❌ DATABASE_URL is missing in env');
 
 const bot = new Telegraf(BOT_TOKEN || 'MISSING_BOT_TOKEN');
 
-// 🚨 Fuerza SSL siempre (Railway)
+// 🔐 Railway Postgres requiere SSL siempre
 const db = new Pool({
   connectionString: DATABASE_URL,
   ssl: { rejectUnauthorized: false }
@@ -58,7 +52,7 @@ async function initializeDatabase() {
     console.log('✅ Database initialized');
   } catch (err) {
     console.error('❌ Database initialization failed:', err);
-    // no hacemos exit; el bot puede seguir (health/webhook responderán 200)
+    // no tumbar el proceso: health/webhook seguirán respondiendo 200
   }
 }
 
@@ -141,7 +135,6 @@ bot.on('chat_member', async (ctx) => {
     const joinedNow =
       (oldStatus !== 'member' && newStatus === 'member') ||
       (oldStatus !== 'restricted' && newStatus === 'restricted');
-
     if (!joinedNow) return;
 
     const joinedUser = upd.new_chat_member?.user;
@@ -250,7 +243,6 @@ bot.command('whoadded', async (ctx) => {
        LIMIT 1`,
       [chatId, targetId]
     );
-
     if (!result.rows.length) return ctx.reply('No entry found for that user.');
 
     const row = result.rows[0];
@@ -273,7 +265,14 @@ bot.command('whoadded', async (ctx) => {
 
 // ====== START (Webhook o Polling) + Healthcheck ======
 async function start() {
-  // 1) Levanta HTTP primero (para evitar 502 en /health)
+  console.log('BOOT:', {
+    MODE,
+    PORT: process.env.PORT,
+    WEBHOOK_DOMAIN,
+    NODE_ENV: process.env.NODE_ENV
+  });
+
+  // HTTP primero (evita 502 en /health)
   const server = http.createServer((req, res) => {
     if (req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -282,8 +281,10 @@ async function start() {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('InviteTracker up');
   });
-  server.listen(PORT, () => {
-    console.log(`HTTP health on :${PORT}`);
+
+  // ⭐ Bind explícito a 0.0.0.0 (recomendado en PaaS)
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`HTTP health on :${PORT} (0.0.0.0)`);
   });
 
   if (MODE === 'webhook') {
@@ -299,7 +300,7 @@ async function start() {
         console.error('Failed to set webhook:', e);
       }
 
-      // ⭐️ ACK inmediato y proceso en background
+      // ACK inmediato + proceso en background
       server.on('request', (req, res) => {
         if (req.method === 'POST' && req.url === path) {
           let body = '';
@@ -322,7 +323,7 @@ async function start() {
             // Procesar el update en segundo plano
             try {
               const update = JSON.parse(body);
-              console.log('[WEBHOOK] update received (truncated):', body.slice(0, 200));
+              console.log('[WEBHOOK] update received (first 200 chars):', body.slice(0, 200));
               bot.handleUpdate(update).catch((e) => {
                 console.error('handleUpdate error:', e);
               });
