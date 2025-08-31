@@ -6,7 +6,7 @@ const pg = require('pg');
 const { Pool, types } = pg;
 
 // Parse PG int8 (OID 20) as string para evitar precision loss en JS
-types.setTypeParser(20, val => val); // deja BIGINT como string
+types.setTypeParser(20, (val) => val);
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -16,21 +16,27 @@ const WEBHOOK_DOMAIN = process.env.WEBHOOK_DOMAIN;
 
 if (!BOT_TOKEN) {
   console.error('❌ BOT_TOKEN is missing in .env file');
-  process.exit(1);
+  // no salimos: dejamos el server de health vivo para ver logs
 }
 if (!DATABASE_URL) {
   console.error('❌ DATABASE_URL is missing in .env file');
-  process.exit(1);
+  // tampoco salimos
 }
 
-const bot = new Telegraf(BOT_TOKEN);
+const bot = new Telegraf(BOT_TOKEN || 'MISSING_BOT_TOKEN');
+
+// 🚨 Fuerza SSL siempre (Railway)
 const db = new Pool({
   connectionString: DATABASE_URL,
-  ssl: { rejectUnauthorized: false }   // always on for Railway
+  ssl: { rejectUnauthorized: false }
 });
 
 // ====== DB SCHEMA ======
 async function initializeDatabase() {
+  if (!DATABASE_URL) {
+    console.warn('⚠️  DATABASE_URL missing; skipping DB init');
+    return;
+  }
   try {
     await db.query(`
       CREATE TABLE IF NOT EXISTS invites (
@@ -47,12 +53,12 @@ async function initializeDatabase() {
         joined_at BIGINT NOT NULL
       );
     `);
-    await db.query(\`CREATE INDEX IF NOT EXISTS idx_invites_chat_joined ON invites(chat_id, joined_user_id);\`);
-    await db.query(\`CREATE INDEX IF NOT EXISTS idx_invites_chat_inviter ON invites(chat_id, inviter_user_id);\`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_invites_chat_joined ON invites(chat_id, joined_user_id);`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_invites_chat_inviter ON invites(chat_id, inviter_user_id);`);
     console.log('✅ Database initialized');
   } catch (err) {
     console.error('❌ Database initialization failed:', err);
-    process.exit(1);
+    // no hacemos exit; el bot puede seguir (health/webhook responderán 200)
   }
 }
 
@@ -60,12 +66,13 @@ async function insertInvite(
   chatId, joinedUserId, joinedUsername, inviterUserId, inviterUsername,
   method, inviteLink, inviteLinkCreatorId, inviteLinkCreatorUsername, joinedAt
 ) {
+  if (!DATABASE_URL) return;
   try {
     await db.query(
-      \`INSERT INTO invites (
+      `INSERT INTO invites (
         chat_id, joined_user_id, joined_username, inviter_user_id, inviter_username,
         method, invite_link, invite_link_creator_id, invite_link_creator_username, joined_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)\`,
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [
         String(chatId),
         String(joinedUserId),
@@ -92,43 +99,43 @@ function usernameOf(user) {
 }
 
 // ====== EVENT HANDLERS ======
-
-// 1) new_chat_members (manual add o self-join)
 bot.on('new_chat_members', async (ctx) => {
-  const msg = ctx.message;
-  const chatId = msg.chat.id;
-  const inviter = msg.from;
+  try {
+    const msg = ctx.message;
+    const chatId = msg.chat.id;
+    const inviter = msg.from;
 
-  for (const member of msg.new_chat_members) {
-    let method = 'self_join';
-    let inviterUser = null;
+    for (const member of msg.new_chat_members) {
+      let method = 'self_join';
+      let inviterUser = null;
 
-    if (inviter && inviter.id !== member.id) {
-      method = 'added';
-      inviterUser = inviter;
+      if (inviter && inviter.id !== member.id) {
+        method = 'added';
+        inviterUser = inviter;
+      }
+
+      await insertInvite(
+        chatId,
+        member.id,
+        usernameOf(member),
+        inviterUser ? inviterUser.id : null,
+        inviterUser ? usernameOf(inviterUser) : null,
+        method,
+        null,
+        null,
+        null,
+        Math.floor(Date.now() / 1000)
+      );
     }
-
-    await insertInvite(
-      chatId,
-      member.id,
-      usernameOf(member),
-      inviterUser ? inviterUser.id : null,
-      inviterUser ? usernameOf(inviterUser) : null,
-      method,
-      null,
-      null,
-      null,
-      Math.floor(Date.now() / 1000)
-    );
+  } catch (e) {
+    console.error('new_chat_members handler error:', e);
   }
 });
 
-// 2) chat_member (invite link, approvals)
 bot.on('chat_member', async (ctx) => {
   try {
     const upd = ctx.update.chat_member;
     const chatId = upd.chat.id;
-
     const oldStatus = upd.old_chat_member?.status;
     const newStatus = upd.new_chat_member?.status;
     const joinedNow =
@@ -151,7 +158,6 @@ bot.on('chat_member', async (ctx) => {
       inviteLinkStr = link.invite_link || null;
       linkCreator = link.creator || null;
     }
-
     if (actor && joinedUser && actor.id !== joinedUser.id) {
       method = link ? 'invite_link' : 'approved';
       inviterUser = actor;
@@ -174,7 +180,6 @@ bot.on('chat_member', async (ctx) => {
   }
 });
 
-// ====== COMMANDS ======
 bot.command('start', (ctx) => ctx.reply('Invite Tracker bot is running ✅'));
 
 bot.command('myinvites', async (ctx) => {
@@ -182,11 +187,11 @@ bot.command('myinvites', async (ctx) => {
   const me = String(ctx.from.id);
   try {
     const result = await db.query(
-      \`SELECT COUNT(*) AS c FROM invites WHERE chat_id = $1 AND inviter_user_id = $2\`,
+      `SELECT COUNT(*) AS c FROM invites WHERE chat_id = $1 AND inviter_user_id = $2`,
       [chatId, me]
     );
-    const count = result.rows[0].c;
-    ctx.reply(\`You have invited/approved \${count} member(s) to this group.\`);
+    const count = result.rows[0]?.c ?? 0;
+    ctx.reply(`You have invited/approved ${count} member(s) to this group.`);
   } catch (err) {
     console.error('Error in myinvites:', err);
     ctx.reply('Error retrieving invite count.');
@@ -197,17 +202,17 @@ bot.command('topinviters', async (ctx) => {
   const chatId = String(ctx.chat.id);
   try {
     const result = await db.query(
-      \`SELECT inviter_user_id, inviter_username, COUNT(*) AS c
+      `SELECT inviter_user_id, inviter_username, COUNT(*) AS c
        FROM invites
        WHERE chat_id = $1 AND inviter_user_id IS NOT NULL
        GROUP BY inviter_user_id, inviter_username
        ORDER BY c::INT DESC
-       LIMIT 10\`,
+       LIMIT 10`,
       [chatId]
     );
     if (!result.rows.length) return ctx.reply('No inviter data yet.');
     const lines = result.rows.map((r, i) =>
-      \`\${i + 1}. \${r.inviter_username || r.inviter_user_id}: \${r.c}\`
+      `${i + 1}. ${r.inviter_username || r.inviter_user_id}: ${r.c}`
     );
     ctx.reply('🏆 Top inviters:\n' + lines.join('\n'));
   } catch (err) {
@@ -225,11 +230,10 @@ bot.command('whoadded', async (ctx) => {
     } else {
       const parts = ctx.message.text.split(/\s+/).slice(1).join(' ').trim();
       if (!parts) return ctx.reply('Reply to a user or pass @username/userId.');
-
       const result = await db.query(
-        \`SELECT joined_user_id FROM invites
+        `SELECT joined_user_id FROM invites
          WHERE chat_id = $1 AND (joined_username = $2 OR joined_user_id = $3)
-         ORDER BY joined_at DESC LIMIT 1\`,
+         ORDER BY joined_at DESC LIMIT 1`,
         [chatId, parts.startsWith('@') ? parts : '@' + parts, String(Number(parts) || -1)]
       );
       if (result.rows.length > 0) targetId = String(result.rows[0].joined_user_id);
@@ -238,12 +242,12 @@ bot.command('whoadded', async (ctx) => {
     if (!targetId) return ctx.reply('User not found in logs.');
 
     const result = await db.query(
-      \`SELECT inviter_username, inviter_user_id, method, invite_link,
+      `SELECT inviter_username, inviter_user_id, method, invite_link,
               invite_link_creator_username, invite_link_creator_id, joined_at
        FROM invites
        WHERE chat_id = $1 AND joined_user_id = $2
        ORDER BY joined_at DESC
-       LIMIT 1\`,
+       LIMIT 1`,
       [chatId, targetId]
     );
 
@@ -252,15 +256,15 @@ bot.command('whoadded', async (ctx) => {
     const row = result.rows[0];
     const when = new Date(Number(row.joined_at) * 1000).toLocaleString();
     if (row.method === 'added' || row.method === 'approved') {
-      return ctx.reply(\`User was \${row.method} by \${row.inviter_username || row.inviter_user_id} on \${when}.\`);
+      return ctx.reply(`User was ${row.method} by ${row.inviter_username || row.inviter_user_id} on ${when}.`);
     }
     if (row.method === 'invite_link') {
       return ctx.reply(
-        \`User joined via invite link\${row.invite_link ? \` (\${row.invite_link})\` : ''} \` +
-        \`created by \${row.invite_link_creator_username || row.invite_link_creator_id || 'unknown'} on \${when}.\`
+        `User joined via invite link${row.invite_link ? ` (${row.invite_link})` : ''} ` +
+        `created by ${row.invite_link_creator_username || row.invite_link_creator_id || 'unknown'} on ${when}.`
       );
     }
-    return ctx.reply(\`User self-joined on \${when}.\`);
+    return ctx.reply(`User self-joined on ${when}.`);
   } catch (err) {
     console.error('Error in whoadded:', err);
     ctx.reply('Error retrieving user information.');
@@ -269,7 +273,7 @@ bot.command('whoadded', async (ctx) => {
 
 // ====== START (Webhook o Polling) + Healthcheck ======
 async function start() {
-  // HTTP server para healthcheck y (si webhook) endpoint del webhook
+  // 1) Levanta HTTP primero (para evitar 502 en /health)
   const server = http.createServer((req, res) => {
     if (req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -279,53 +283,59 @@ async function start() {
     res.end('InviteTracker up');
   });
   server.listen(PORT, () => {
-    console.log('HTTP health on :', PORT);
+    console.log(`HTTP health on :${PORT}`);
   });
 
   if (MODE === 'webhook') {
     if (!WEBHOOK_DOMAIN) {
       console.error('❌ WEBHOOK_DOMAIN required in webhook mode');
-      process.exit(1);
-    }
-    const path = '/telegram/webhook';
-    const webhookUrl = `${WEBHOOK_DOMAIN}${path}`;
-    await bot.telegram.setWebhook(webhookUrl);
-    console.log('🔗 Webhook set to:', webhookUrl);
-
-    // ⭐️ ACK INMEDIATO para evitar 502; procesar update en background
-    server.on('request', (req, res) => {
-      if (req.method === 'POST' && req.url === path) {
-        console.log('[WEBHOOK] hit', new Date().toISOString());
-        let body = '';
-        req.on('data', (chunk) => {
-          body += chunk;
-          if (body.length > 1e6) { // protección básica
-            res.writeHead(413, { 'Content-Type': 'text/plain' });
-            return res.end('Payload too large');
-          }
-        });
-        req.on('end', () => {
-          // responder rápido
-          try {
-            res.writeHead(200, { 'Content-Type': 'text/plain' });
-            res.end('OK');
-          } catch (_) {}
-
-          // procesar el update sin bloquear la respuesta
-          try {
-            const update = JSON.parse(body);
-            bot.handleUpdate(update).catch((e) => {
-              console.error('handleUpdate error:', e);
-            });
-          } catch (e) {
-            console.error('Webhook JSON parse error:', e);
-          }
-        });
-        return;
+    } else {
+      const path = '/telegram/webhook';
+      const webhookUrl = `${WEBHOOK_DOMAIN}${path}`;
+      try {
+        await bot.telegram.setWebhook(webhookUrl);
+        console.log('🔗 Webhook set to:', webhookUrl);
+      } catch (e) {
+        console.error('Failed to set webhook:', e);
       }
-    });
+
+      // ⭐️ ACK inmediato y proceso en background
+      server.on('request', (req, res) => {
+        if (req.method === 'POST' && req.url === path) {
+          let body = '';
+          console.log('[WEBHOOK] hit', new Date().toISOString());
+          req.on('data', (chunk) => {
+            body += chunk;
+            if (body.length > 1e6) {
+              console.warn('[WEBHOOK] payload too large');
+              res.writeHead(413, { 'Content-Type': 'text/plain' });
+              return res.end('Payload too large');
+            }
+          });
+          req.on('end', () => {
+            // Responder YA para evitar 502 en Telegram
+            try {
+              res.writeHead(200, { 'Content-Type': 'text/plain' });
+              res.end('OK');
+            } catch (_) {}
+
+            // Procesar el update en segundo plano
+            try {
+              const update = JSON.parse(body);
+              console.log('[WEBHOOK] update received (truncated):', body.slice(0, 200));
+              bot.handleUpdate(update).catch((e) => {
+                console.error('handleUpdate error:', e);
+              });
+            } catch (e) {
+              console.error('Webhook JSON parse error:', e, 'body:', body.slice(0, 200));
+            }
+          });
+          return;
+        }
+      });
+    }
   } else {
-    // Polling: asegúrate de eliminar el webhook
+    // Polling: elimina webhook y arranca polling
     try {
       await bot.telegram.deleteWebhook({ drop_pending_updates: false });
       console.log('🧹 Webhook eliminado (polling activo)');
@@ -336,30 +346,28 @@ async function start() {
     console.log('▶️ Polling iniciado');
   }
 
-  console.log('🚀 Bot started with PostgreSQL');
+  console.log('🚀 Bot started (server up). DB init will run next…');
 }
 
-bot.catch((err) => console.error('Bot error:', err));
+// Errores globales (no tumbar el proceso)
+process.on('unhandledRejection', (r) => console.error('UNHANDLED REJECTION:', r));
+process.on('uncaughtException', (e) => console.error('UNCAUGHT EXCEPTION:', e));
 
+// Secuencia: server -> (webhook/polling) -> DB init
+start()
+  .then(() => initializeDatabase())
+  .catch((e) => console.error('Fatal start error:', e));
+
+// Apagado limpio
 async function shutdown(sig) {
   console.log(`\nReceived ${sig}. Shutting down...`);
   try {
     await bot.stop(sig);
-    await db.end();
+    if (DATABASE_URL) await db.end();
     process.exit(0);
   } catch (e) {
     console.error('Error during shutdown:', e);
     process.exit(1);
   }
 }
-
-['SIGINT', 'SIGTERM'].forEach(sig => process.once(sig, () => shutdown(sig)));
-
-start().then(() => {
-  initializeDatabase().catch((e) => {
-    console.error('Database init error (bot will still run):', e);
-  });
-}).catch((e) => {
-  console.error('Fatal start error:', e);
-  process.exit(1);
-});
+['SIGINT', 'SIGTERM'].forEach((sig) => process.once(sig, () => shutdown(sig)));
