@@ -26,7 +26,7 @@ if (!DATABASE_URL) {
 const bot = new Telegraf(BOT_TOKEN);
 const db = new Pool({
   connectionString: DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  ssl: { rejectUnauthorized: false }   // always on for Railway
 });
 
 // ====== DB SCHEMA ======
@@ -47,8 +47,8 @@ async function initializeDatabase() {
         joined_at BIGINT NOT NULL
       );
     `);
-    await db.query(`CREATE INDEX IF NOT EXISTS idx_invites_chat_joined ON invites(chat_id, joined_user_id);`);
-    await db.query(`CREATE INDEX IF NOT EXISTS idx_invites_chat_inviter ON invites(chat_id, inviter_user_id);`);
+    await db.query(\`CREATE INDEX IF NOT EXISTS idx_invites_chat_joined ON invites(chat_id, joined_user_id);\`);
+    await db.query(\`CREATE INDEX IF NOT EXISTS idx_invites_chat_inviter ON invites(chat_id, inviter_user_id);\`);
     console.log('✅ Database initialized');
   } catch (err) {
     console.error('❌ Database initialization failed:', err);
@@ -62,10 +62,10 @@ async function insertInvite(
 ) {
   try {
     await db.query(
-      `INSERT INTO invites (
+      \`INSERT INTO invites (
         chat_id, joined_user_id, joined_username, inviter_user_id, inviter_username,
         method, invite_link, invite_link_creator_id, invite_link_creator_username, joined_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)\`,
       [
         String(chatId),
         String(joinedUserId),
@@ -182,11 +182,11 @@ bot.command('myinvites', async (ctx) => {
   const me = String(ctx.from.id);
   try {
     const result = await db.query(
-      `SELECT COUNT(*) AS c FROM invites WHERE chat_id = $1 AND inviter_user_id = $2`,
+      \`SELECT COUNT(*) AS c FROM invites WHERE chat_id = $1 AND inviter_user_id = $2\`,
       [chatId, me]
     );
     const count = result.rows[0].c;
-    ctx.reply(`You have invited/approved ${count} member(s) to this group.`);
+    ctx.reply(\`You have invited/approved \${count} member(s) to this group.\`);
   } catch (err) {
     console.error('Error in myinvites:', err);
     ctx.reply('Error retrieving invite count.');
@@ -197,17 +197,17 @@ bot.command('topinviters', async (ctx) => {
   const chatId = String(ctx.chat.id);
   try {
     const result = await db.query(
-      `SELECT inviter_user_id, inviter_username, COUNT(*) AS c
+      \`SELECT inviter_user_id, inviter_username, COUNT(*) AS c
        FROM invites
        WHERE chat_id = $1 AND inviter_user_id IS NOT NULL
        GROUP BY inviter_user_id, inviter_username
        ORDER BY c::INT DESC
-       LIMIT 10`,
+       LIMIT 10\`,
       [chatId]
     );
     if (!result.rows.length) return ctx.reply('No inviter data yet.');
     const lines = result.rows.map((r, i) =>
-      `${i + 1}. ${r.inviter_username || r.inviter_user_id}: ${r.c}`
+      \`\${i + 1}. \${r.inviter_username || r.inviter_user_id}: \${r.c}\`
     );
     ctx.reply('🏆 Top inviters:\n' + lines.join('\n'));
   } catch (err) {
@@ -227,9 +227,9 @@ bot.command('whoadded', async (ctx) => {
       if (!parts) return ctx.reply('Reply to a user or pass @username/userId.');
 
       const result = await db.query(
-        `SELECT joined_user_id FROM invites
+        \`SELECT joined_user_id FROM invites
          WHERE chat_id = $1 AND (joined_username = $2 OR joined_user_id = $3)
-         ORDER BY joined_at DESC LIMIT 1`,
+         ORDER BY joined_at DESC LIMIT 1\`,
         [chatId, parts.startsWith('@') ? parts : '@' + parts, String(Number(parts) || -1)]
       );
       if (result.rows.length > 0) targetId = String(result.rows[0].joined_user_id);
@@ -238,12 +238,12 @@ bot.command('whoadded', async (ctx) => {
     if (!targetId) return ctx.reply('User not found in logs.');
 
     const result = await db.query(
-      `SELECT inviter_username, inviter_user_id, method, invite_link,
+      \`SELECT inviter_username, inviter_user_id, method, invite_link,
               invite_link_creator_username, invite_link_creator_id, joined_at
        FROM invites
        WHERE chat_id = $1 AND joined_user_id = $2
        ORDER BY joined_at DESC
-       LIMIT 1`,
+       LIMIT 1\`,
       [chatId, targetId]
     );
 
@@ -252,15 +252,15 @@ bot.command('whoadded', async (ctx) => {
     const row = result.rows[0];
     const when = new Date(Number(row.joined_at) * 1000).toLocaleString();
     if (row.method === 'added' || row.method === 'approved') {
-      return ctx.reply(`User was ${row.method} by ${row.inviter_username || row.inviter_user_id} on ${when}.`);
+      return ctx.reply(\`User was \${row.method} by \${row.inviter_username || row.inviter_user_id} on \${when}.\`);
     }
     if (row.method === 'invite_link') {
       return ctx.reply(
-        `User joined via invite link${row.invite_link ? ` (${row.invite_link})` : ''} ` +
-        `created by ${row.invite_link_creator_username || row.invite_link_creator_id || 'unknown'} on ${when}.`
+        \`User joined via invite link\${row.invite_link ? \` (\${row.invite_link})\` : ''} \` +
+        \`created by \${row.invite_link_creator_username || row.invite_link_creator_id || 'unknown'} on \${when}.\`
       );
     }
-    return ctx.reply(`User self-joined on ${when}.`);
+    return ctx.reply(\`User self-joined on \${when}.\`);
   } catch (err) {
     console.error('Error in whoadded:', err);
     ctx.reply('Error retrieving user information.');
@@ -279,7 +279,7 @@ async function start() {
     res.end('InviteTracker up');
   });
   server.listen(PORT, () => {
-    console.log(`HTTP health on :${PORT}`);
+    console.log('HTTP health on :', PORT);
   });
 
   if (MODE === 'webhook') {
@@ -292,19 +292,33 @@ async function start() {
     await bot.telegram.setWebhook(webhookUrl);
     console.log('🔗 Webhook set to:', webhookUrl);
 
-    // Manejo de POST /telegram/webhook
-    server.on('request', async (req, res) => {
+    // ⭐️ ACK INMEDIATO para evitar 502; procesar update en background
+    server.on('request', (req, res) => {
       if (req.method === 'POST' && req.url === path) {
+        console.log('[WEBHOOK] hit', new Date().toISOString());
         let body = '';
-        req.on('data', (chunk) => (body += chunk));
-        req.on('end', async () => {
+        req.on('data', (chunk) => {
+          body += chunk;
+          if (body.length > 1e6) { // protección básica
+            res.writeHead(413, { 'Content-Type': 'text/plain' });
+            return res.end('Payload too large');
+          }
+        });
+        req.on('end', () => {
+          // responder rápido
+          try {
+            res.writeHead(200, { 'Content-Type': 'text/plain' });
+            res.end('OK');
+          } catch (_) {}
+
+          // procesar el update sin bloquear la respuesta
           try {
             const update = JSON.parse(body);
-            await bot.handleUpdate(update);
-            res.writeHead(200); res.end('OK');
+            bot.handleUpdate(update).catch((e) => {
+              console.error('handleUpdate error:', e);
+            });
           } catch (e) {
-            console.error('Webhook error:', e);
-            res.writeHead(500); res.end('ERR');
+            console.error('Webhook JSON parse error:', e);
           }
         });
         return;
@@ -341,7 +355,11 @@ async function shutdown(sig) {
 
 ['SIGINT', 'SIGTERM'].forEach(sig => process.once(sig, () => shutdown(sig)));
 
-initializeDatabase().then(start).catch((e) => {
-  console.error('Fatal init error:', e);
+start().then(() => {
+  initializeDatabase().catch((e) => {
+    console.error('Database init error (bot will still run):', e);
+  });
+}).catch((e) => {
+  console.error('Fatal start error:', e);
   process.exit(1);
 });
