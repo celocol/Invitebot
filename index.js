@@ -5,21 +5,27 @@ const http = require('http');
 const pg = require('pg');
 const { Pool, types } = pg;
 
-// Evita pérdida de precisión con BIGINT (OID 20)
+// Evitar pérdida de precisión con BIGINT (OID 20)
 types.setTypeParser(20, (val) => val);
 
+// ====== ENV ======
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const DATABASE_URL = process.env.DATABASE_URL;
 const MODE = (process.env.MODE || 'polling').toLowerCase(); // 'polling' | 'webhook'
 const PORT = Number(process.env.PORT || 3000);
 const WEBHOOK_DOMAIN = process.env.WEBHOOK_DOMAIN;
 
-if (!BOT_TOKEN) console.error('❌ BOT_TOKEN is missing in env');
-if (!DATABASE_URL) console.error('❌ DATABASE_URL is missing in env');
+if (!BOT_TOKEN) console.error('❌ BOT_TOKEN missing');
+if (!DATABASE_URL) console.error('❌ DATABASE_URL missing');
 
+// ====== GLOBAL REFS PARA SHUTDOWN LIMPIO ======
+let serverRef = null;
+let isPolling = false;
+
+// ====== BOT & DB ======
 const bot = new Telegraf(BOT_TOKEN || 'MISSING_BOT_TOKEN');
 
-// 🔐 Railway Postgres requiere SSL siempre
+// Postgres con SSL (Render/Railway)
 const db = new Pool({
   connectionString: DATABASE_URL,
   ssl: { rejectUnauthorized: false }
@@ -52,7 +58,7 @@ async function initializeDatabase() {
     console.log('✅ Database initialized');
   } catch (err) {
     console.error('❌ Database initialization failed:', err);
-    // no tumbar el proceso: health/webhook seguirán respondiendo 200
+    // No tumbar proceso; /health y webhook deben seguir respondiendo
   }
 }
 
@@ -92,7 +98,7 @@ function usernameOf(user) {
   return name || String(user.id);
 }
 
-// ====== EVENT HANDLERS ======
+// ====== HANDLERS ======
 bot.on('new_chat_members', async (ctx) => {
   try {
     const msg = ctx.message;
@@ -135,6 +141,7 @@ bot.on('chat_member', async (ctx) => {
     const joinedNow =
       (oldStatus !== 'member' && newStatus === 'member') ||
       (oldStatus !== 'restricted' && newStatus === 'restricted');
+
     if (!joinedNow) return;
 
     const joinedUser = upd.new_chat_member?.user;
@@ -243,6 +250,7 @@ bot.command('whoadded', async (ctx) => {
        LIMIT 1`,
       [chatId, targetId]
     );
+
     if (!result.rows.length) return ctx.reply('No entry found for that user.');
 
     const row = result.rows[0];
@@ -273,7 +281,7 @@ async function start() {
   });
 
   // HTTP primero (evita 502 en /health)
-  const server = http.createServer((req, res) => {
+  serverRef = http.createServer((req, res) => {
     if (req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       return res.end('ok');
@@ -282,8 +290,8 @@ async function start() {
     res.end('InviteTracker up');
   });
 
-  // ⭐ Bind explícito a 0.0.0.0 (recomendado en PaaS)
-  server.listen(PORT, '0.0.0.0', () => {
+  // Bind a 0.0.0.0 (PaaS-friendly)
+  serverRef.listen(PORT, '0.0.0.0', () => {
     console.log(`HTTP health on :${PORT} (0.0.0.0)`);
   });
 
@@ -301,7 +309,7 @@ async function start() {
       }
 
       // ACK inmediato + proceso en background
-      server.on('request', (req, res) => {
+      serverRef.on('request', (req, res) => {
         if (req.method === 'POST' && req.url === path) {
           let body = '';
           console.log('[WEBHOOK] hit', new Date().toISOString());
@@ -314,7 +322,7 @@ async function start() {
             }
           });
           req.on('end', () => {
-            // Responder YA para evitar 502 en Telegram
+            // Responder YA para evitar 502 a Telegram
             try {
               res.writeHead(200, { 'Content-Type': 'text/plain' });
               res.end('OK');
@@ -344,6 +352,7 @@ async function start() {
       console.warn('No se pudo eliminar webhook (puede no existir):', e.message);
     }
     await bot.launch();
+    isPolling = true;
     console.log('▶️ Polling iniciado');
   }
 
@@ -359,12 +368,31 @@ start()
   .then(() => initializeDatabase())
   .catch((e) => console.error('Fatal start error:', e));
 
-// Apagado limpio
+// ====== SHUTDOWN LIMPIO ======
 async function shutdown(sig) {
   console.log(`\nReceived ${sig}. Shutting down...`);
   try {
-    await bot.stop(sig);
-    if (DATABASE_URL) await db.end();
+    if (isPolling) {
+      try {
+        await bot.stop(sig);
+        console.log('Polling stopped.');
+      } catch (e) {
+        console.warn('Skip bot.stop (not running or webhook mode):', e.message);
+      }
+    } else {
+      console.log('Webhook mode — skipping bot.stop');
+    }
+
+    if (serverRef) {
+      await new Promise((resolve) => serverRef.close(resolve));
+      console.log('HTTP server closed.');
+    }
+
+    if (DATABASE_URL) {
+      await db.end().catch((e) => console.warn('DB end warn:', e.message));
+      console.log('DB pool ended.');
+    }
+
     process.exit(0);
   } catch (e) {
     console.error('Error during shutdown:', e);
