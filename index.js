@@ -494,21 +494,18 @@ app.get('/', (req, res) => {
 // Inicializar todo
 async function start() {
     try {
-        // Conectar a la base de datos
-        await createDBConnection();
-
-        // Lanzar el bot
-        await bot.launch();
-        console.log('✅ Bot de Telegraf iniciado');
-
-        // Iniciar el servidor Express
+        // Levantar Express primero, siempre
         app.listen(PORT, () => {
             console.log(`✅ Servidor Express ejecutándose en puerto ${PORT}`);
         });
 
+        // Intentar DB y bot después (no bloquea el healthcheck)
+        await createDBConnection();
+        await bot.launch();
+        console.log('✅ Bot de Telegraf iniciado');
+
     } catch (error) {
         console.error('❌ Error iniciando la aplicación:', error);
-        process.exit(1);
     }
 }
 
