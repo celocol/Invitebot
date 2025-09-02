@@ -563,14 +563,29 @@ async function start() {
         // Configurar bot según entorno
         if (process.env.NODE_ENV === 'production') {
             console.log('🔄 Configurando webhook para producción...');
-            const WEBHOOK_URL = `https://${process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL}/webhook`;
             
-            // Configurar webhook
-            await bot.telegram.setWebhook(WEBHOOK_URL);
-            console.log(`✅ Webhook configurado: ${WEBHOOK_URL}`);
+            // Obtener URL de Railway de múltiples fuentes posibles
+            const railwayUrl = process.env.RAILWAY_PUBLIC_DOMAIN || 
+                             process.env.RAILWAY_STATIC_URL || 
+                             process.env.PUBLIC_URL ||
+                             `${process.env.RAILWAY_SERVICE_NAME || 'app'}.up.railway.app`;
             
-            // Usar webhook callback
-            app.use(bot.webhookCallback('/webhook'));
+            const WEBHOOK_URL = `https://${railwayUrl}/webhook`;
+            console.log(`🌐 Intentando configurar webhook: ${WEBHOOK_URL}`);
+            
+            try {
+                // Configurar webhook
+                await bot.telegram.setWebhook(WEBHOOK_URL);
+                console.log(`✅ Webhook configurado: ${WEBHOOK_URL}`);
+                
+                // Usar webhook callback
+                app.use(bot.webhookCallback('/webhook'));
+            } catch (webhookError) {
+                console.error('❌ Error configurando webhook:', webhookError.message);
+                console.log('🔄 Fallback: usando polling en producción...');
+                await bot.launch();
+                console.log('✅ Bot iniciado en modo polling');
+            }
         } else {
             console.log('🔄 Usando polling para desarrollo...');
             await bot.launch();
