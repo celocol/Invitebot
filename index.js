@@ -1,15 +1,16 @@
 const { Telegraf } = require('telegraf');
 const mysql = require('mysql2/promise');
 const express = require('express');
+require('dotenv').config();
 
 //Token del bot y configuración de la base de datos
-const BOT_TOKEN = "8430478031:AAEOYpEce8vERY5ji2r0cvC5ethvIXKi9TI";
+const BOT_TOKEN = process.env.BOT_TOKEN;
 const DB_CONFIG = {
-    host: "nozomi.proxy.rlwy.net",
-    database: "railway",
-    user: "root",
-    password: "swJBnjdgkjDMotccwXZtmjvrQbkhbmSJ",
-    port: 24763,
+    host: process.env.DB_CONFIG_HOST,
+    database: process.env.DB_CONFIG_DATABASE,
+    user: process.env.DB_CONFIG_USER,
+    password: process.env.DB_CONFIG_PASSWORD,
+    port: parseInt(process.env.DB_CONFIG_PORT) || 3306,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
@@ -418,11 +419,6 @@ bot.command('mis', async (ctx) => {
     return ctx.scene.enter || ctx.telegram.sendMessage(ctx.chat.id, "Usa /misinvitaciones para ver tus invitaciones");
 });
 
-bot.command("crash", (ctx) => {
-  ctx.reply("💥 Forzando crash...");
-  process.exit(1);
-});
-
 // Manejar nuevos miembros
 bot.on('new_chat_members', async (ctx) => {
     console.log('📥 Nuevos miembros detectados');
@@ -479,9 +475,9 @@ bot.on('my_chat_member', (ctx) => {
     }
 });
 
+// Configurar Express para health check
 const app = express();
 const PORT = process.env.PORT || 3000;
-const WEBHOOK_URL = process.env.WEBHOOK_URL;
 
 app.get('/health', (req, res) => {
     res.json({ status: 'ok' });
@@ -495,40 +491,41 @@ app.get('/', (req, res) => {
     });
 });
 
-// Enlazar webhook
-app.use(bot.webhookCallback('/telegram-webhook'));
-
-// Inicializar todo
+// Inicializar
 async function start() {
     try {
+        // Conectar a la base de datos
         await createDBConnection();
 
-        if (WEBHOOK_URL) {
-            // Configurar webhook en Telegram
-            await bot.telegram.setWebhook(`${WEBHOOK_URL}/telegram-webhook`);
-            console.log(`✅ Webhook configurado en ${WEBHOOK_URL}/telegram-webhook`);
-        } else {
-            console.warn("⚠️ WEBHOOK_URL no definido, el bot no recibirá updates.");
-        }
+        // Lanzar el bot
+        await bot.launch();
+        console.log('✅ Bot de Telegraf iniciado');
 
-        // Levantar servidor Express
+        // Iniciar el servidor Express
         app.listen(PORT, () => {
             console.log(`✅ Servidor Express ejecutándose en puerto ${PORT}`);
         });
 
     } catch (error) {
         console.error('❌ Error iniciando la aplicación:', error);
+        process.exit(1);
     }
 }
 
-function shutdown(signal) {
-    console.log(`\n🛑 Cerrando aplicación por ${signal}...`);
+// Manejar cierre graceful
+process.once('SIGINT', () => {
+    console.log('\n🛑 Cerrando aplicación...');
+    bot.stop('SIGINT');
+    if (pool) pool.end();
+    process.exit(0);
+});
 
-    if (pool) pool.end(); // 🔹 Cierra conexiones abiertas con MySQL
-    process.exit(0);      // 🔹 Finaliza el proceso de Node.js
-}
+process.once('SIGTERM', () => {
+    console.log('\n🛑 Cerrando aplicación...');
+    bot.stop('SIGTERM');
+    if (pool) pool.end();
+    process.exit(0);
+});
 
-process.once('SIGINT', () => shutdown('SIGINT'));
-process.once('SIGTERM', () => shutdown('SIGTERM'));
-
+// Iniciar la aplicación
 start();
