@@ -458,8 +458,8 @@ bot.command('mis', async (ctx) => {
     return ctx.scene.enter || ctx.telegram.sendMessage(ctx.chat.id, "Usa /misinvitaciones para ver tus invitaciones");
 });
 
-// Manejar nuevos miembros
-bot.on('new_chat_members', async (ctx) => {
+// Manejar nuevos miembros en el grupo
+bot.on(message('new_chat_members'), async (ctx) => {
     console.log('📥 Nuevos miembros detectados');
     const newMembers = ctx.message.new_chat_members;
     const inviter = ctx.from;
@@ -487,29 +487,29 @@ bot.on('new_chat_members', async (ctx) => {
 });
 
 // Manejar cuando alguien sale del grupo
-bot.on('left_chat_member', (ctx) => {
+bot.on(message("left_chat_member"), (ctx) => {
     const leftMember = ctx.message.left_chat_member;
     console.log(`👋 ${leftMember.first_name} salió del grupo`);
     ctx.reply(`👋 ${leftMember.first_name} ha salido del grupo`);
 });
 
 // Detectar cuando el bot es añadido a un grupo
-bot.on('my_chat_member', (ctx) => {
-    const newStatus = ctx.myChatMember.new_chat_member.status;
-    const oldStatus = ctx.myChatMember.old_chat_member.status;
+bot.on("my_chat_member", async (ctx) => {
+    const newStatus = ctx.update.my_chat_member.new_chat_member.status;
+    const oldStatus = ctx.update.my_chat_member.old_chat_member.status;
 
-    console.log('🔔 Cambio en membresía del bot:', {
-        chat: ctx.chat.title || ctx.chat.id,
-        type: ctx.chat.type,
+    console.log("🔔 Cambio en membresía del bot:", {
+        chat: ctx.chat?.title || ctx.chat?.id,
+        type: ctx.chat?.type,
         new_status: newStatus,
-        old_status: oldStatus
+        old_status: oldStatus,
     });
 
-    if ((newStatus === 'member' || newStatus === 'administrator') && oldStatus === 'left') {
-        ctx.reply(
-            '👋 ¡Hola! Gracias por añadirme al grupo.\n' +
-            'Por favor, hazme administrador para poder detectar las invitaciones.\n' +
-            'Usa /help para ver los comandos disponibles.'
+    if ((newStatus === "member" || newStatus === "administrator") && oldStatus === "left") {
+        await ctx.reply(
+            "👋 ¡Hola! Gracias por añadirme al grupo.\n" +
+            "Por favor, hazme administrador para poder detectar las invitaciones.\n" +
+            "Usa /help para ver los comandos disponibles."
         );
     }
 });
