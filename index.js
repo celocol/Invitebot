@@ -418,6 +418,11 @@ bot.command('mis', async (ctx) => {
     return ctx.scene.enter || ctx.telegram.sendMessage(ctx.chat.id, "Usa /misinvitaciones para ver tus invitaciones");
 });
 
+bot.command("crash", (ctx) => {
+  ctx.reply("💥 Forzando crash...");
+  process.exit(1);
+});
+
 // Manejar nuevos miembros
 bot.on('new_chat_members', async (ctx) => {
     console.log('📥 Nuevos miembros detectados');
