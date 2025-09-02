@@ -516,21 +516,14 @@ async function start() {
     }
 }
 
-// Manejar cierre graceful
-process.once('SIGINT', () => {
-    console.log('\n🛑 Cerrando aplicación...');
-    bot.stop('SIGINT');
-    if (pool) pool.end();
-    process.exit(0);
-});
+function shutdown(signal) {
+    console.log(`\n🛑 Cerrando aplicación por ${signal}...`);
 
-process.once('SIGTERM', () => {
-    console.log('\n🛑 Cerrando aplicación...');
-    bot.stop('SIGTERM');
-    if (pool) pool.end();
-    process.exit(0);
-});
+    if (pool) pool.end(); // 🔹 Cierra conexiones abiertas con MySQL
+    process.exit(0);      // 🔹 Finaliza el proceso de Node.js
+}
 
-// Iniciar la aplicación
-start();
+process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+
 start();
