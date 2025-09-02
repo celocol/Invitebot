@@ -536,7 +536,7 @@ app.get('/', (_, res) => {
     const appInfo = {
         status: 'running',
         bot: 'Telegram Invitation Tracker (Telegraf)',
-        version: '2.1.0',
+        version: '2.1.1',
         environment: process.env.NODE_ENV || 'development',
         timestamp: new Date().toISOString()
     };
