@@ -3,13 +3,13 @@ const mysql = require('mysql2/promise');
 const express = require('express');
 
 //Token del bot y configuración de la base de datos
-const BOT_TOKEN = process.env.BOT_TOKEN;
+const BOT_TOKEN = "8430478031:AAEOYpEce8vERY5ji2r0cvC5ethvIXKi9TI";
 const DB_CONFIG = {
-    host: process.env.DB_CONFIG_HOST,
-    database: process.env.DB_CONFIG_DATABASE,
-    user: process.env.DB_CONFIG_USER,
-    password: process.env.DB_CONFIG_PASSWORD,
-    port: parseInt(process.env.DB_CONFIG_PORT) || 3306,
+    host: "nozomi.proxy.rlwy.net",
+    database: "railway",
+    user: "root",
+    password: "swJBnjdgkjDMotccwXZtmjvrQbkhbmSJ",
+    port: 24763,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
