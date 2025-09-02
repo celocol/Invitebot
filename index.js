@@ -1,6 +1,7 @@
 const { Telegraf } = require('telegraf');
 const mysql = require('mysql2/promise');
 const express = require('express');
+const {message} = require("telegraf/filters");
 require('dotenv').config();
 
 //Token del bot y configuración de la base de datos
