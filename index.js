@@ -474,9 +474,9 @@ bot.on('my_chat_member', (ctx) => {
     }
 });
 
-// Configurar Express para health check
 const app = express();
 const PORT = process.env.PORT || 3000;
+const WEBHOOK_URL = process.env.WEBHOOK_URL;
 
 app.get('/health', (req, res) => {
     res.json({ status: 'ok' });
@@ -490,18 +490,26 @@ app.get('/', (req, res) => {
     });
 });
 
+// Enlazar webhook
+app.use(bot.webhookCallback('/telegram-webhook'));
+
 // Inicializar todo
 async function start() {
     try {
-        // Levantar Express primero, siempre
+        await createDBConnection();
+
+        if (WEBHOOK_URL) {
+            // Configurar webhook en Telegram
+            await bot.telegram.setWebhook(`${WEBHOOK_URL}/telegram-webhook`);
+            console.log(`✅ Webhook configurado en ${WEBHOOK_URL}/telegram-webhook`);
+        } else {
+            console.warn("⚠️ WEBHOOK_URL no definido, el bot no recibirá updates.");
+        }
+
+        // Levantar servidor Express
         app.listen(PORT, () => {
             console.log(`✅ Servidor Express ejecutándose en puerto ${PORT}`);
         });
-
-        // Intentar DB y bot después (no bloquea el healthcheck)
-        await createDBConnection();
-        await bot.launch();
-        console.log('✅ Bot de Telegraf iniciado');
 
     } catch (error) {
         console.error('❌ Error iniciando la aplicación:', error);
@@ -524,4 +532,5 @@ process.once('SIGTERM', () => {
 });
 
 // Iniciar la aplicación
+start();
 start();
