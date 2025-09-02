@@ -22,16 +22,41 @@ const DB_CONFIG = {
 let pool;
 const bot = new Telegraf(BOT_TOKEN);
 
+// Manejo global de errores del bot
+bot.catch((err, ctx) => {
+    console.error('❌ Error en bot:', err);
+    console.error('Context:', JSON.stringify({
+        update_id: ctx.update.update_id,
+        chat_id: ctx.chat?.id,
+        user_id: ctx.from?.id,
+        message_text: ctx.message?.text
+    }, null, 2));
+    
+    // Intentar responder al usuario sobre el error
+    try {
+        if (ctx.reply) {
+            ctx.reply('❌ Ocurrió un error temporal. Inténtalo de nuevo.');
+        }
+    } catch (replyError) {
+        console.error('❌ No se pudo enviar mensaje de error:', replyError);
+    }
+});
+
 // Función para crear la conexión a la base de datos
-async function createDBConnection() {
+async function createDBConnection(retries = 5) {
     try {
         pool = await mysql.createPool(DB_CONFIG);
         console.log('✅ Conexión a MySQL establecida');
         await createTables();
         return pool;
     } catch (error) {
-        console.error('❌ Error conectando a MySQL:', error);
-        setTimeout(createDBConnection, 5000);
+        console.error(`❌ Error conectando a MySQL (intentos restantes: ${retries - 1}):`, error);
+        if (retries > 0) {
+            setTimeout(() => createDBConnection(retries - 1), 5000);
+        } else {
+            console.error('💀 Máximo de reintentos de conexión alcanzado');
+            process.exit(1);
+        }
     }
 }
 
@@ -75,11 +100,25 @@ async function executeQuery(query, params = []) {
     let retries = 3;
     while (retries > 0) {
         try {
+            if (!pool) {
+                throw new Error('Pool de conexiones no disponible');
+            }
             const [results] = await pool.execute(query, params);
             return results;
         } catch (error) {
-            console.error(`❌ Error ejecutando query (intentos restantes: ${retries - 1}):`, error);
+            console.error(`❌ Error ejecutando query (intentos restantes: ${retries - 1}):`, error.message);
             retries--;
+            
+            // Si es error de conexión, intentar reconectar
+            if (error.code === 'PROTOCOL_CONNECTION_LOST' || error.code === 'ECONNRESET') {
+                console.log('🔄 Intentando reconectar a la base de datos...');
+                try {
+                    await createDBConnection();
+                } catch (reconnectError) {
+                    console.error('❌ Error en reconexión:', reconnectError.message);
+                }
+            }
+            
             if (retries === 0) throw error;
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
@@ -479,16 +518,40 @@ bot.on('my_chat_member', (ctx) => {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok' });
+// Middleware para parsing JSON
+app.use(express.json());
+
+app.get('/health', (_, res) => {
+    const healthStatus = {
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        database: pool ? 'connected' : 'disconnected',
+        uptime: process.uptime()
+    };
+    console.log('👍 Health check:', healthStatus.status);
+    res.json(healthStatus);
 });
 
-app.get('/', (req, res) => {
-    res.json({
+app.get('/', (_, res) => {
+    const appInfo = {
         status: 'running',
         bot: 'Telegram Invitation Tracker (Telegraf)',
-        version: '2.0.0'
-    });
+        version: '2.1.1',
+        environment: process.env.NODE_ENV || 'development',
+        timestamp: new Date().toISOString()
+    };
+    console.log('📊 App info solicitada:', appInfo);
+    res.json(appInfo);
+});
+
+// Webhook endpoint para Railway
+app.post('/webhook', (req, res) => {
+    try {
+        bot.handleUpdate(req.body, res);
+    } catch (error) {
+        console.error('❌ Error en webhook:', error);
+        res.status(500).send('Error processing webhook');
+    }
 });
 
 // Inicializar
@@ -497,13 +560,42 @@ async function start() {
         // Conectar a la base de datos
         await createDBConnection();
 
-        // Lanzar el bot
-        await bot.launch();
-        console.log('✅ Bot de Telegraf iniciado');
+        // Configurar bot según entorno
+        if (process.env.NODE_ENV === 'production') {
+            console.log('🔄 Configurando webhook para producción...');
+            
+            // Obtener URL de Railway de múltiples fuentes posibles
+            const railwayUrl = process.env.RAILWAY_PUBLIC_DOMAIN || 
+                             process.env.RAILWAY_STATIC_URL || 
+                             process.env.PUBLIC_URL ||
+                             `${process.env.RAILWAY_SERVICE_NAME || 'app'}.up.railway.app`;
+            
+            const WEBHOOK_URL = `https://${railwayUrl}/webhook`;
+            console.log(`🌐 Intentando configurar webhook: ${WEBHOOK_URL}`);
+            
+            try {
+                // Configurar webhook
+                await bot.telegram.setWebhook(WEBHOOK_URL);
+                console.log(`✅ Webhook configurado: ${WEBHOOK_URL}`);
+                
+                // Usar webhook callback
+                app.use(bot.webhookCallback('/webhook'));
+            } catch (webhookError) {
+                console.error('❌ Error configurando webhook:', webhookError.message);
+                console.log('🔄 Fallback: usando polling en producción...');
+                await bot.launch();
+                console.log('✅ Bot iniciado en modo polling');
+            }
+        } else {
+            console.log('🔄 Usando polling para desarrollo...');
+            await bot.launch();
+            console.log('✅ Bot iniciado en modo polling');
+        }
 
         // Iniciar el servidor Express
         app.listen(PORT, () => {
             console.log(`✅ Servidor Express ejecutándose en puerto ${PORT}`);
+            console.log(`🌍 Modo: ${process.env.NODE_ENV || 'development'}`);
         });
 
     } catch (error) {
@@ -514,18 +606,39 @@ async function start() {
 
 // Manejar cierre graceful
 process.once('SIGINT', () => {
-    console.log('\n🛑 Cerrando aplicación...');
-    bot.stop('SIGINT');
-    if (pool) pool.end();
-    process.exit(0);
+    console.log('\n🛑 Recibido SIGINT - Cerrando aplicación...');
+    gracefulShutdown('SIGINT');
 });
 
 process.once('SIGTERM', () => {
-    console.log('\n🛑 Cerrando aplicación...');
-    bot.stop('SIGTERM');
-    if (pool) pool.end();
-    process.exit(0);
+    console.log('\n🛑 Recibido SIGTERM - Cerrando aplicación...');
+    gracefulShutdown('SIGTERM');
 });
+
+// Función para cierre controlado
+async function gracefulShutdown(signal) {
+    console.log(`🔄 Iniciando cierre graceful (${signal})...`);
+    
+    try {
+        // Detener bot
+        if (process.env.NODE_ENV !== 'production') {
+            bot.stop(signal);
+            console.log('✅ Bot detenido');
+        }
+        
+        // Cerrar pool de conexiones
+        if (pool) {
+            await pool.end();
+            console.log('✅ Conexiones de DB cerradas');
+        }
+        
+        console.log('✅ Aplicación cerrada correctamente');
+        process.exit(0);
+    } catch (error) {
+        console.error('❌ Error durante el cierre:', error);
+        process.exit(1);
+    }
+}
 
 // Iniciar la aplicación
 start();
