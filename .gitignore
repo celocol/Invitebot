@@ -69,6 +69,9 @@ jspm_packages/
 .env.production.local
 .env.staging
 
+# Temporarily ignore package-lock.json to avoid Railway npm ci issues
+package-lock.json
+
 # parcel-bundler cache
 .cache
 .parcel-cache
