@@ -200,12 +200,85 @@ async function getUserRankingPosition(userId) {
     }
 }
 
-
-// Endpoint que recibirá los updates de Telegram
-app.post("/webhook/telegram", (req, res) => {
-    bot.processUpdate(req.body);
-    res.sendStatus(200);
+//*****START SERVER*****//
+app.listen(3000, async () => {
+    console.log("🚀 Servidor Express escuchando en puerto 3000");
 });
+
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok' });
+});
+
+app.get('/', (req, res) => {
+    res.json({
+        status: 'running',
+        bot: 'Telegram Invitation Tracker (Node Telegram Bot API)',
+        version: '1.0.0'
+    });
+});
+
+let bot; // única instancia global
+
+async function start() {
+    try {
+        await createDBConnection();
+
+        if (process.env.NODE_ENV === "production") {
+            console.log("🔄 Configurando webhook para producción...");
+
+            const railwayUrl =
+                process.env.RAILWAY_PUBLIC_DOMAIN ||
+                process.env.RAILWAY_STATIC_URL ||
+                process.env.PUBLIC_URL ||
+                `${process.env.RAILWAY_SERVICE_NAME || "app"}.up.railway.app`;
+
+            const WEBHOOK_URL = `https://${railwayUrl}/webhook`;
+
+            bot = new TelegramBot(BOT_TOKEN, {
+                webHook: {
+                    allowed_updates: ["message", "chat_member", "my_chat_member"]
+                }
+            });
+
+            await bot.setWebHook(WEBHOOK_URL);
+            console.log(`✅ Webhook configurado: ${WEBHOOK_URL}`);
+
+            app.post("/webhook", (req, res) => {
+                bot.processUpdate(req.body);
+                res.sendStatus(200);
+            });
+        } else {
+            console.log("🔄 Usando polling para desarrollo...");
+
+            bot = new TelegramBot(BOT_TOKEN, {
+                polling: {
+                    params: {
+                        allowed_updates: ["message", "chat_member", "my_chat_member"]
+                    }
+                }
+            });
+        }
+
+        // Handlers de bot (comandos y eventos)
+        bot.on("message", (msg) => {
+            console.log("📨 Mensaje recibido:", msg.text);
+            bot.sendMessage(msg.chat.id, "👋 Hola, el bot ya está funcionando!");
+        });
+
+        console.log("✅ Bot iniciado");
+
+        app.listen(PORT, () => {
+            console.log(`✅ Servidor Express en puerto ${PORT}`);
+            console.log(`🌍 Modo: ${process.env.NODE_ENV || "development"}`);
+        });
+    } catch (error) {
+        console.error("❌ Error iniciando la aplicación:", error);
+        process.exit(1);
+    }
+}
+
+start();
+
 
 //*****BOT COMMANDS*****//
 
@@ -466,83 +539,3 @@ bot.on("my_chat_member", async (msg) => {
 });
 
 //*****BOT EVENTS*****//
-
-
-//*****START SERVER*****//
-app.listen(3000, async () => {
-    console.log("🚀 Servidor Express escuchando en puerto 3000");
-});
-
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok' });
-});
-
-app.get('/', (req, res) => {
-    res.json({
-        status: 'running',
-        bot: 'Telegram Invitation Tracker (Node Telegram Bot API)',
-        version: '1.0.0'
-    });
-});
-
-let bot; // única instancia global
-
-async function start() {
-    try {
-        await createDBConnection();
-
-        if (process.env.NODE_ENV === "production") {
-            console.log("🔄 Configurando webhook para producción...");
-
-            const railwayUrl =
-                process.env.RAILWAY_PUBLIC_DOMAIN ||
-                process.env.RAILWAY_STATIC_URL ||
-                process.env.PUBLIC_URL ||
-                `${process.env.RAILWAY_SERVICE_NAME || "app"}.up.railway.app`;
-
-            const WEBHOOK_URL = `https://${railwayUrl}/webhook`;
-
-            bot = new TelegramBot(BOT_TOKEN, {
-                webHook: {
-                    allowed_updates: ["message", "chat_member", "my_chat_member"]
-                }
-            });
-
-            await bot.setWebHook(WEBHOOK_URL);
-            console.log(`✅ Webhook configurado: ${WEBHOOK_URL}`);
-
-            app.post("/webhook", (req, res) => {
-                bot.processUpdate(req.body);
-                res.sendStatus(200);
-            });
-        } else {
-            console.log("🔄 Usando polling para desarrollo...");
-
-            bot = new TelegramBot(BOT_TOKEN, {
-                polling: {
-                    params: {
-                        allowed_updates: ["message", "chat_member", "my_chat_member"]
-                    }
-                }
-            });
-        }
-
-        // Handlers de bot (comandos y eventos)
-        bot.on("message", (msg) => {
-            console.log("📨 Mensaje recibido:", msg.text);
-            bot.sendMessage(msg.chat.id, "👋 Hola, el bot ya está funcionando!");
-        });
-
-        console.log("✅ Bot iniciado");
-
-        app.listen(PORT, () => {
-            console.log(`✅ Servidor Express en puerto ${PORT}`);
-            console.log(`🌍 Modo: ${process.env.NODE_ENV || "development"}`);
-        });
-    } catch (error) {
-        console.error("❌ Error iniciando la aplicación:", error);
-        process.exit(1);
-    }
-}
-
-start();
