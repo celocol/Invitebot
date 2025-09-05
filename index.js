@@ -391,39 +391,44 @@ async function start() {
             }
         });
 
-        bot.on("chat_member", async (memberStatus) => {
-            const { chat, from, new_chat_member, old_chat_member, } = memberStatus;
+        bot.on("chat_member", async (msg) => {
+            const { chat, from, old_chat_member, new_chat_member } = msg.chat_member;
 
             console.log("📌 Evento de chat_member detectado");
             console.log("Chat:", chat.title || chat.id);
-            console.log("Usuario:", from.username || from.first_name);
+            console.log("Usuario que hizo la acción:", from.username || from.first_name);
 
-            if (new_chat_member.status === 'left' || new_chat_member.status === 'kicked') {
+            if (new_chat_member.status === "left" || new_chat_member.status === "kicked") {
                 await bot.sendMessage(chat.id, `👋 ${new_chat_member.user.first_name} salió del grupo`);
             }
 
-            if (new_chat_member.status === 'administrator') {
+            if (new_chat_member.status === "administrator") {
                 await bot.sendMessage(chat.id, `⚡ ${new_chat_member.user.first_name} ahora es administrador`);
             }
 
-            //Nuevo usuario
+            // Nuevo usuario agregado
             if (new_chat_member.status === "member") {
                 const inviterId = from.id;
                 const inviterUsername = from.username || from.first_name;
                 const invitedId = new_chat_member.user.id;
-                const invitedUsername =
-                    new_chat_member.user.username || new_chat_member.user.first_name;
+                const invitedUsername = new_chat_member.user.username || new_chat_member.user.first_name;
 
-                const isSuccess = await registerInvitation(inviterId, inviterUsername, invitedId, invitedUsername);
+                const isSuccess = await registerInvitation(
+                    inviterId,
+                    inviterUsername,
+                    invitedId,
+                    invitedUsername
+                );
 
-                console.log('✅ Invitación procesada');
+                console.log("✅ Invitación procesada");
 
-                if (isSuccess){
-                    await bot.sendMessage(chat.id,
+                if (isSuccess) {
+                    await bot.sendMessage(
+                        chat.id,
                         `👋 ¡Bienvenido ${new_chat_member.user.first_name}!\n` +
-                        `✨ Invitado por: @${from.username || from.first_name}`
+                        `✨ Invitado por: @${inviterUsername}`
                     );
-                    console.log('✅ Mensaje de bienvenida enviado');
+                    console.log("✅ Mensaje de bienvenida enviado");
                 }
             }
         });
@@ -458,6 +463,13 @@ async function start() {
                 // ❌ No intentes enviar mensajes aquí, porque ya no tienes permisos
             }
         });
+
+        bot.on("message", msg => console.log("📨 MESSAGE:", msg));
+        bot.on("chat_member", update => console.log("👥 CHAT_MEMBER:", update));
+        bot.on("my_chat_member", update => console.log("🤖 MY_CHAT_MEMBER:", update));
+
+        bot.on("polling_error", console.error);
+        bot.on("webhook_error", console.error);
         
         // Express server
         app.listen(PORT, () => {
