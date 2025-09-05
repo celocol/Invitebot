@@ -200,16 +200,6 @@ async function getUserRankingPosition(userId) {
     }
 }
 
-//*****BOT SETUP*****//
-
-const bot = new TelegramBot(BOT_TOKEN, {
-    polling: {
-        params: {
-            allowed_updates: JSON.stringify('allowedUpdates'),
-        },
-    },
-
-});
 
 // Endpoint que recibirá los updates de Telegram
 app.post("/webhook/telegram", (req, res) => {
@@ -480,7 +470,6 @@ bot.on("my_chat_member", async (msg) => {
 
 //*****START SERVER*****//
 app.listen(3000, async () => {
-    await createDBConnection();
     console.log("🚀 Servidor Express escuchando en puerto 3000");
 });
 
@@ -496,33 +485,64 @@ app.get('/', (req, res) => {
     });
 });
 
-//*****PROCESS SIGNALS*****//
-process.once('SIGINT', async () => {
-    console.log('\n🛑 Cerrando aplicación (SIGINT)...');
-    try {
-        await bot.stopPolling();
-        console.log("✅ Polling detenido correctamente");
-    } catch (err) {
-        console.error("⚠️ Error deteniendo polling:", err.message);
-    }
-    if (pool) {
-        await pool.end();
-        console.log("✅ Conexión MySQL cerrada");
-    }
-    process.exit(0);
-});
+let bot; // única instancia global
 
-process.once('SIGTERM', async () => {
-    console.log('\n🛑 Cerrando aplicación (SIGTERM)...');
+async function start() {
     try {
-        await bot.stopPolling();
-        console.log("✅ Polling detenido correctamente");
-    } catch (err) {
-        console.error("⚠️ Error deteniendo polling:", err.message);
+        await createDBConnection();
+
+        if (process.env.NODE_ENV === "production") {
+            console.log("🔄 Configurando webhook para producción...");
+
+            const railwayUrl =
+                process.env.RAILWAY_PUBLIC_DOMAIN ||
+                process.env.RAILWAY_STATIC_URL ||
+                process.env.PUBLIC_URL ||
+                `${process.env.RAILWAY_SERVICE_NAME || "app"}.up.railway.app`;
+
+            const WEBHOOK_URL = `https://${railwayUrl}/webhook`;
+
+            bot = new TelegramBot(BOT_TOKEN, {
+                webHook: {
+                    allowed_updates: ["message", "chat_member", "my_chat_member"]
+                }
+            });
+
+            await bot.setWebHook(WEBHOOK_URL);
+            console.log(`✅ Webhook configurado: ${WEBHOOK_URL}`);
+
+            app.post("/webhook", (req, res) => {
+                bot.processUpdate(req.body);
+                res.sendStatus(200);
+            });
+        } else {
+            console.log("🔄 Usando polling para desarrollo...");
+
+            bot = new TelegramBot(BOT_TOKEN, {
+                polling: {
+                    params: {
+                        allowed_updates: ["message", "chat_member", "my_chat_member"]
+                    }
+                }
+            });
+        }
+
+        // Handlers de bot (comandos y eventos)
+        bot.on("message", (msg) => {
+            console.log("📨 Mensaje recibido:", msg.text);
+            bot.sendMessage(msg.chat.id, "👋 Hola, el bot ya está funcionando!");
+        });
+
+        console.log("✅ Bot iniciado");
+
+        app.listen(PORT, () => {
+            console.log(`✅ Servidor Express en puerto ${PORT}`);
+            console.log(`🌍 Modo: ${process.env.NODE_ENV || "development"}`);
+        });
+    } catch (error) {
+        console.error("❌ Error iniciando la aplicación:", error);
+        process.exit(1);
     }
-    if (pool) {
-        await pool.end();
-        console.log("✅ Conexión MySQL cerrada");
-    }
-    process.exit(0);
-});
+}
+
+start();
