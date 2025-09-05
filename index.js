@@ -198,12 +198,17 @@ async function start() {
 
             const WEBHOOK_URL = `https://${railwayUrl}/webhook`;
 
-            bot = new TelegramBot(BOT_TOKEN, {
+            /*bot = new TelegramBot(BOT_TOKEN, {
                 webHook: { allowed_updates: ["message", "chat_member", "my_chat_member"] }
-            });
+            });*/
 
-            await bot.setWebHook(WEBHOOK_URL);
+            bot = new TelegramBot(BOT_TOKEN, { polling: false });
+
+            await bot.setWebHook(WEBHOOK_URL, {
+                allowed_updates: ["message", "chat_member", "my_chat_member"]
+            });
             app.post("/webhook", (req, res) => {
+                console.log("📬 Webhook recibido");
                 bot.processUpdate(req.body);
                 res.sendStatus(200);
             });
