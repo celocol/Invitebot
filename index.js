@@ -464,12 +464,53 @@ async function start() {
             }
         });
 
-        bot.on("message", msg => console.log("📨 MESSAGE:", msg));
-        bot.on("chat_member", update => console.log("👥 CHAT_MEMBER:", update));
-        bot.on("my_chat_member", update => console.log("🤖 MY_CHAT_MEMBER:", update));
+        bot.on("message", async (msg) => {
+            const chat = msg.chat;
 
-        bot.on("polling_error", console.error);
-        bot.on("webhook_error", console.error);
+            if (msg.new_chat_member) {
+                const user = msg.new_chat_member;
+                console.log("👋 Nuevo usuario:", user.username || user.first_name);
+
+                await bot.sendMessage(
+                    chat.id,
+                    `👋 ¡Bienvenido ${user.first_name}!\n` +
+                    `✨ Invitado por: @${msg.from.username || msg.from.first_name}`
+                );
+
+                const inviterId = msg.from.id;
+                const inviterUsername = msg.from.username || msg.from.first_name;
+                const invitedId = msg.new_chat_member.user.id;
+                const invitedUsername = msg.new_chat_member.user.username || msg.new_chat_member.user.first_name;
+
+                const isSuccess = await registerInvitation(
+                    inviterId,
+                    inviterUsername,
+                    invitedId,
+                    invitedUsername
+                );
+
+                console.log("✅ Invitación procesada");
+
+                if (isSuccess) {
+                    await bot.sendMessage(
+                        chat.id,
+                        `👋 ¡Bienvenido ${msg.new_chat_member.user.first_name}!\n` +
+                        `✨ Invitado por: @${inviterUsername}`
+                    );
+                    console.log("✅ Mensaje de bienvenida enviado");
+                }
+            }
+
+            if (msg.left_chat_member) {
+                const user = msg.left_chat_member;
+                console.log("👋 Usuario salió:", user.username || user.first_name);
+
+                await bot.sendMessage(
+                    chat.id,
+                    `👋 ${user.first_name} salió del grupo`
+                );
+            }
+        });
         
         // Express server
         app.listen(PORT, () => {
@@ -477,7 +518,7 @@ async function start() {
             console.log(`🌍 Modo: ${process.env.NODE_ENV || "development"}`);
         });
     } catch (error) {
-        console.error("❌ Error iniciando la aplicación: ", error);
+        console.error("❌ Error iniciando la aplicación:", error);
         process.exit(1);
     }
 }
