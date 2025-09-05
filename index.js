@@ -477,7 +477,7 @@ async function start() {
             console.log(`🌍 Modo: ${process.env.NODE_ENV || "development"}`);
         });
     } catch (error) {
-        console.error("❌ Error iniciando la aplicación:", error);
+        console.error("❌ Error iniciando la aplicación: ", error);
         process.exit(1);
     }
 }
