@@ -1,12 +1,23 @@
+// =======================
+// 📦 IMPORTS Y CONFIG
+// =======================
 const express = require("express");
 const TelegramBot = require("node-telegram-bot-api");
-const mysql = require('mysql2/promise');
+const mysql = require("mysql2/promise");
 require("dotenv").config();
 
 const app = express();
 app.use(express.json());
 
-// Configuración DB
+const PORT = process.env.PORT || 3000;
+const BOT_TOKEN = process.env.BOT_TOKEN;
+
+let bot;  // instancia global
+let pool; // conexión DB
+
+// =======================
+// 🗄️ CONFIGURACIÓN DB
+// =======================
 const DB_CONFIG = {
     host: process.env.DB_CONFIG_HOST,
     database: process.env.DB_CONFIG_DATABASE,
@@ -20,25 +31,18 @@ const DB_CONFIG = {
     keepAliveInitialDelay: 0
 };
 
-let pool;
-
-// Configuración Bot
-const BOT_TOKEN = process.env.BOT_TOKEN;
-
-// Crear conexión a la base de datos
 async function createDBConnection() {
     try {
         pool = await mysql.createPool(DB_CONFIG);
-        console.log('✅ Conexión a MySQL establecida');
+        console.log("✅ Conexión a MySQL establecida");
         await createTables();
         return pool;
     } catch (error) {
-        console.error('❌ Error conectando a MySQL:', error);
+        console.error("❌ Error conectando a MySQL:", error);
         setTimeout(createDBConnection, 5000);
     }
 }
 
-// Crear tablas si no existen
 async function createTables() {
     try {
         const connection = await pool.getConnection();
@@ -67,13 +71,12 @@ async function createTables() {
         `);
 
         connection.release();
-        console.log('✅ Tablas creadas/verificadas correctamente');
+        console.log("✅ Tablas creadas/verificadas correctamente");
     } catch (error) {
-        console.error('❌ Error creando tablas:', error);
+        console.error("❌ Error creando tablas:", error);
     }
 }
 
-// Ejecutar query con reintentos
 async function executeQuery(query, params = []) {
     let retries = 3;
     while (retries > 0) {
@@ -84,26 +87,24 @@ async function executeQuery(query, params = []) {
             console.error(`❌ Error ejecutando query (intentos restantes: ${retries - 1}):`, error);
             retries--;
             if (retries === 0) throw error;
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(res => setTimeout(res, 1000));
         }
     }
 }
 
-// Registrar invitación
+// =======================
+// ⚙️ FUNCIONES AUXILIARES BOT
+// =======================
 async function registerInvitation(inviterId, inviterUsername, invitedId, invitedUsername) {
     try {
         const existing = await executeQuery(
-            'SELECT * FROM invitations WHERE inviter_id = ? AND invited_id = ?',
+            "SELECT * FROM invitations WHERE inviter_id = ? AND invited_id = ?",
             [inviterId, invitedId]
         );
-
-        if (existing.length > 0) {
-            console.log('⚠️ Invitación ya registrada');
-            return false;
-        }
+        if (existing.length > 0) return false;
 
         await executeQuery(
-            'INSERT INTO invitations (inviter_id, inviter_username, invited_id, invited_username) VALUES (?, ?, ?, ?)',
+            "INSERT INTO invitations (inviter_id, inviter_username, invited_id, invited_username) VALUES (?, ?, ?, ?)",
             [inviterId, inviterUsername || null, invitedId, invitedUsername || null]
         );
 
@@ -113,45 +114,36 @@ async function registerInvitation(inviterId, inviterUsername, invitedId, invited
              ON DUPLICATE KEY UPDATE 
              count = count + 1,
              username = VALUES(username)`,
-            [inviterId, inviterUsername || 'Unknown']
+            [inviterId, inviterUsername || "Unknown"]
         );
 
-        console.log(`✅ Invitación registrada: ${inviterUsername} invitó a ${invitedUsername}`);
         return true;
     } catch (error) {
-        console.error('❌ Error registrando invitación:', error);
+        console.error("❌ Error registrando invitación:", error);
         return false;
     }
 }
 
 async function getRanking() {
     try {
-        const results = await executeQuery(
-            'SELECT username, count FROM ranking ORDER BY count DESC LIMIT 10'
+        return await executeQuery(
+            "SELECT username, count FROM ranking ORDER BY count DESC LIMIT 10"
         );
-        return results;
-    } catch (error) {
-        console.error('❌ Error obteniendo ranking:', error);
+    } catch {
         return [];
     }
 }
 
 async function sendTemporaryMessage(chatId, text, timeout) {
     try {
-        const sentMessage = await bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
-
-        if (sentMessage && sentMessage.message_id) {
+        const sent = await bot.sendMessage(chatId, text, { parse_mode: "Markdown" });
+        if (sent?.message_id) {
             setTimeout(() => {
-                bot.deleteMessage(chatId, sentMessage.message_id).catch(() => {
-                    console.warn("⚠️ No se pudo borrar el mensaje temporal");
-                });
+                bot.deleteMessage(chatId, sent.message_id).catch(() => {});
             }, timeout);
-        } else {
-            console.warn("⚠️ El mensaje no devolvió message_id, no se puede borrar automáticamente");
         }
-
-    } catch (error) {
-        console.error('❌ Error enviando mensaje temporal:', error);
+    } catch (err) {
+        console.error("❌ Error enviando mensaje temporal:", err);
     }
 }
 
@@ -159,8 +151,7 @@ async function isUserAdmin(chatId, userId) {
     try {
         const admins = await bot.getChatAdministrators(chatId);
         return admins.some(admin => admin.user.id === userId);
-    } catch (error) {
-        console.error("❌ Error verificando admin:", error);
+    } catch {
         return false;
     }
 }
@@ -168,17 +159,11 @@ async function isUserAdmin(chatId, userId) {
 async function getUserInvitations(userId) {
     try {
         const results = await executeQuery(
-            'SELECT count FROM ranking WHERE user_id = ?',
+            "SELECT count FROM ranking WHERE user_id = ?",
             [userId]
         );
-
-        if (results.length === 0) {
-            return 0;
-        }
-
-        return results[0].count;
-    } catch (error) {
-        console.error('❌ Error obteniendo invitaciones del usuario:', error);
+        return results.length ? results[0].count : 0;
+    } catch {
         return null;
     }
 }
@@ -186,46 +171,25 @@ async function getUserInvitations(userId) {
 async function getUserRankingPosition(userId) {
     try {
         const results = await executeQuery(
-            `SELECT 
-                COUNT(*) + 1 as position 
+            `SELECT COUNT(*) + 1 as position 
              FROM ranking 
              WHERE count > (SELECT COALESCE(count, 0) FROM ranking WHERE user_id = ?)`,
             [userId]
         );
-
         return results[0].position;
-    } catch (error) {
-        console.error('❌ Error obteniendo posición en ranking:', error);
+    } catch {
         return null;
     }
 }
 
-//*****START SERVER*****//
-app.listen(3000, async () => {
-    console.log("🚀 Servidor Express escuchando en puerto 3000");
-});
-
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok' });
-});
-
-app.get('/', (req, res) => {
-    res.json({
-        status: 'running',
-        bot: 'Telegram Invitation Tracker (Node Telegram Bot API)',
-        version: '1.0.0'
-    });
-});
-
-let bot; // única instancia global
-
+// =======================
+// 🚀 INICIO SERVIDOR + BOT
+// =======================
 async function start() {
     try {
         await createDBConnection();
 
         if (process.env.NODE_ENV === "production") {
-            console.log("🔄 Configurando webhook para producción...");
-
             const railwayUrl =
                 process.env.RAILWAY_PUBLIC_DOMAIN ||
                 process.env.RAILWAY_STATIC_URL ||
@@ -235,55 +199,39 @@ async function start() {
             const WEBHOOK_URL = `https://${railwayUrl}/webhook`;
 
             bot = new TelegramBot(BOT_TOKEN, {
-                webHook: {
-                    allowed_updates: ["message", "chat_member", "my_chat_member"]
-                }
+                webHook: { allowed_updates: ["message", "chat_member", "my_chat_member"] }
             });
 
             await bot.setWebHook(WEBHOOK_URL);
-            console.log(`✅ Webhook configurado: ${WEBHOOK_URL}`);
-
             app.post("/webhook", (req, res) => {
                 bot.processUpdate(req.body);
                 res.sendStatus(200);
             });
-        } else {
-            console.log("🔄 Usando polling para desarrollo...");
 
+            console.log(`✅ Webhook configurado: ${WEBHOOK_URL}`);
+        } else {
             bot = new TelegramBot(BOT_TOKEN, {
-                polling: {
-                    params: {
-                        allowed_updates: ["message", "chat_member", "my_chat_member"]
-                    }
-                }
+                polling: { params: { allowed_updates: ["message", "chat_member", "my_chat_member"] } }
             });
+            console.log("✅ Bot en modo polling (desarrollo)");
         }
 
-        // Handlers de bot (comandos y eventos)
-        bot.on("message", (msg) => {
-            console.log("📨 Mensaje recibido:", msg.text);
-            bot.sendMessage(msg.chat.id, "👋 Hola, el bot ya está funcionando!");
-        });
-
-        console.log("✅ Bot iniciado");
-
         app.listen(PORT, () => {
-            console.log(`✅ Servidor Express en puerto ${PORT}`);
-            console.log(`🌍 Modo: ${process.env.NODE_ENV || "development"}`);
+            console.log(`🚀 Servidor Express en puerto ${PORT}`);
         });
+
     } catch (error) {
-        console.error("❌ Error iniciando la aplicación:", error);
+        console.error("❌ Error iniciando la app:", error);
         process.exit(1);
     }
 }
 
 start();
 
-
-//*****BOT COMMANDS*****//
-
-// Comando /start
-bot.onText(/^\/start$/, async (msg) => {
+// =======================
+// 📋 BOT COMMANDS
+// =======================
+bot?.onText(/^\/start$/, async (msg) => {
     console.log('🚀 Procesando comando /start...');
 
     const chatId = msg.chat.id;
@@ -310,8 +258,7 @@ bot.onText(/^\/start$/, async (msg) => {
 
     console.log('✅ Start procesado');
 });
-
-bot.onText(/^\/help$/, async (msg) => {
+bot?.onText(/^\/help$/, async (msg) => {
     console.log('❓ Comando /help recibido');
 
     const chatId = msg.chat.id;
@@ -357,8 +304,7 @@ bot.onText(/^\/help$/, async (msg) => {
 
     console.log(`✅ Help procesado para ${username}`);
 });
-
-bot.onText(/^\/ranking$/, async (msg) => {
+bot?.onText(/^\/ranking$/, async (msg) => {
     console.log('📊 Procesando comando /ranking...');
 
     const chatId = msg.chat.id;
@@ -403,8 +349,7 @@ bot.onText(/^\/ranking$/, async (msg) => {
         await bot.sendMessage(chatId, '❌ Error al obtener el ranking. Intenta más tarde.');
     }
 });
-
-bot.onText(/^\/misinvitaciones$/, async (msg) => {
+bot?.onText(/^\/misinvitaciones$/, async (msg) => {
     console.log('📊 Procesando comando /misinvitaciones...');
 
     const chatId = msg.chat.id;
@@ -464,12 +409,10 @@ bot.onText(/^\/misinvitaciones$/, async (msg) => {
     }
 });
 
-
-//*****BOT COMMANDS*****//
-
-
-//*****BOT EVENTS*****//
-bot.on("chat_member", async (memberStatus) => {
+// =======================
+// 📌 BOT EVENTS
+// =======================
+bot?.on("chat_member", async (memberStatus) => {
     const { chat, from, new_chat_member, old_chat_member, } = memberStatus;
 
     console.log("📌 Evento de chat_member detectado");
@@ -505,8 +448,7 @@ bot.on("chat_member", async (memberStatus) => {
         }
     }
 });
-
-bot.on("my_chat_member", async (msg) => {
+bot?.on("my_chat_member", async (msg) => {
     const newStatus = msg.new_chat_member.status;
     const oldStatus = msg.old_chat_member.status;
 
@@ -538,4 +480,19 @@ bot.on("my_chat_member", async (msg) => {
     }
 });
 
-//*****BOT EVENTS*****//
+// =======================
+// 🛑 SHUTDOWN ORDENADO
+// =======================
+process.once("SIGINT", () => {
+    console.log("🛑 Cerrando aplicación (SIGINT)...");
+    bot?.stop("SIGINT");
+    pool?.end();
+    process.exit(0);
+});
+
+process.once("SIGTERM", () => {
+    console.log("🛑 Cerrando aplicación (SIGTERM)...");
+    bot?.stop("SIGTERM");
+    pool?.end();
+    process.exit(0);
+});
