@@ -38,11 +38,7 @@ async function start() {
 
             const WEBHOOK_URL = `https://${railwayUrl}/webhook`;
 
-            bot = new TelegramBot(token, {
-                webHook: {
-                    port: PORT,
-                },
-            });
+            bot = new TelegramBot(token, { polling: false });
 
             // Configurar webhook en Telegram
             await bot.setWebHook(WEBHOOK_URL);
