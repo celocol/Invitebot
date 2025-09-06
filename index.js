@@ -403,9 +403,45 @@ async function start() {
             console.log("Usuario que hizo la acción:", from.username || from.first_name);
             console.log("De:", old_chat_member.status, "➡️ A:", new_chat_member.status);
 
-            // Ejemplos:
             if (new_chat_member.status === "left" || new_chat_member.status === "kicked") {
-                await bot.sendMessage(chat.id, `👋 ${new_chat_member.user.first_name} salió del grupo`);
+                const userId = new_chat_member.user.id;
+                const username = new_chat_member.user.username || new_chat_member.user.first_name;
+
+                try {
+                    const invitations = await executeQuery(
+                        "SELECT inviter_id FROM invitations WHERE invited_id = ?",
+                        [userId]
+                    );
+
+                    if (invitations.length > 0) {
+                        const inviterId = invitations[0].inviter_id;
+
+                        await executeQuery("DELETE FROM invitations WHERE invited_id = ?", [userId]);
+
+                        // 3. Obtener el ranking del invitador
+                        const rankingRows = await executeQuery(
+                            "SELECT count FROM ranking WHERE user_id = ?",
+                            [inviterId]
+                        );
+
+                        if (rankingRows.length > 0) {
+                            const nuevoCount = rankingRows[0].count - 1;
+
+                            if (nuevoCount <= 0) {
+                                await executeQuery("DELETE FROM ranking WHERE user_id = ?", [inviterId]);
+                            } else {
+                                await executeQuery(
+                                    "UPDATE ranking SET count = ? WHERE user_id = ?",
+                                    [nuevoCount, inviterId]
+                                );
+                            }
+                        }
+                    }
+
+                    await bot.sendMessage(chat.id, `👋 ${username} salió del grupo`);
+                } catch (err) {
+                    console.error("❌ Error procesando salida de usuario:", err);
+                }
             }
 
             if (new_chat_member.status === "administrator") {
