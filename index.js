@@ -437,18 +437,28 @@ async function start() {
         });*/
 
         bot.on("chat_member", async (update) => {
-            if (!update.chat_member) return;
+            // Aquí `update` ya es todo el objeto que viene en chat_member
+            const { chat, from, old_chat_member, new_chat_member } = update;
 
-            const { chat, new_chat_member, old_chat_member } = update.chat_member;
+            console.log("📌 Evento de chat_member detectado");
+            console.log("Chat:", chat.title || chat.id);
+            console.log("Usuario que hizo la acción:", from.username || from.first_name);
+            console.log("De:", old_chat_member.status, "➡️ A:", new_chat_member.status);
 
-            console.log("👥 CHAT_MEMBER update:", new_chat_member.status);
-
-            if (new_chat_member.status === "member" && old_chat_member.status === "left") {
-                await bot.sendMessage(chat.id, `Bienvenido ${new_chat_member.user.first_name}!`);
+            // Ejemplos:
+            if (new_chat_member.status === "left" || new_chat_member.status === "kicked") {
+                await bot.sendMessage(chat.id, `👋 ${new_chat_member.user.first_name} salió del grupo`);
             }
 
-            if (new_chat_member.status === "left" || new_chat_member.status === "kicked") {
-                await bot.sendMessage(chat.id, `${new_chat_member.user.first_name} salió del grupo`);
+            if (new_chat_member.status === "administrator") {
+                await bot.sendMessage(chat.id, `⚡ ${new_chat_member.user.first_name} ahora es administrador`);
+            }
+
+            if (new_chat_member.status === "member") {
+                await bot.sendMessage(
+                    chat.id,
+                    `👋 ¡Bienvenido ${new_chat_member.user.first_name}!\n✨ Invitado por: @${from.username || from.first_name}`
+                );
             }
         });
         
