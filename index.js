@@ -183,7 +183,9 @@ async function start() {
             bot = new TelegramBot(token, { polling: false });
 
             // Configurar webhook en Telegram
-            await bot.setWebHook(WEBHOOK_URL);
+            await bot.setWebHook(WEBHOOK_URL, {
+                allowed_updates: ["*"]
+            });
             console.log(`✅ Webhook configurado: ${WEBHOOK_URL}`);
 
             // Middleware para recibir updates
@@ -199,7 +201,7 @@ async function start() {
             bot = new TelegramBot(token, {
                 polling: {
                     params: {
-                        allowed_updates: ["message", "chat_member", "my_chat_member"],
+                        allowed_updates: ["*"],
                     },
                 },
             });
