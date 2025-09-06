@@ -192,7 +192,6 @@ async function start() {
             app.use(express.json());
             app.post("/webhook", (req, res) => {
                 console.log("📬 Webhook recibido");
-                console.log(req.body);
                 bot.processUpdate(req.body);
                 res.sendStatus(200);
             });
