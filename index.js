@@ -412,7 +412,7 @@ async function start() {
                 await bot.sendMessage(chat.id, `⚡ ${new_chat_member.user.first_name} ahora es administrador`);
             }
 
-            if (new_chat_member.status === "member") {
+            if (new_chat_member.status === "member" && from.id !== new_chat_member.user.id) {
 
                 const inviterId = from.id;
                 const inviterUsername = from.username || from.first_name;
