@@ -391,7 +391,7 @@ async function start() {
             }
         });
 
-        bot.on("chat_member", async (msg) => {
+        /*bot.on("chat_member", async (msg) => {
             const { chat, from, old_chat_member, new_chat_member } = msg.chat_member;
 
             console.log("📌 Evento de chat_member detectado");
@@ -431,7 +431,24 @@ async function start() {
                     console.log("✅ Mensaje de bienvenida enviado");
                 }
             }
+        });*/
+
+        bot.on("chat_member", async (update) => {
+            if (!update.chat_member) return;
+
+            const { chat, new_chat_member, old_chat_member } = update.chat_member;
+
+            console.log("👥 CHAT_MEMBER update:", new_chat_member.status);
+
+            if (new_chat_member.status === "member" && old_chat_member.status === "left") {
+                await bot.sendMessage(chat.id, `Bienvenido ${new_chat_member.user.first_name}!`);
+            }
+
+            if (new_chat_member.status === "left" || new_chat_member.status === "kicked") {
+                await bot.sendMessage(chat.id, `${new_chat_member.user.first_name} salió del grupo`);
+            }
         });
+        
         bot.on("my_chat_member", async (msg) => {
             const newStatus = msg.new_chat_member.status;
             const oldStatus = msg.old_chat_member.status;
