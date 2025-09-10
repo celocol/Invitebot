@@ -437,7 +437,7 @@ async function start() {
                         }
                     }
 
-                    await bot.sendMessage(chat.id, `👋 ${username} salió del grupo`);
+                    await bot.sendMessage(chat.id, `👋 @${username} salió del grupo`);
                 } catch (err) {
                     console.error("❌ Error procesando salida de usuario:", err);
                 }
@@ -544,7 +544,7 @@ async function start() {
 
                 await bot.sendMessage(
                     chat.id,
-                    `👋 ${user.first_name} salió del grupo`
+                    `👋 @${user.username} salió del grupo`
                 );
             }
         });
