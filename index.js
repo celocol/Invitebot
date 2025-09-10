@@ -287,6 +287,8 @@ async function start() {
             console.log(`✅ Help procesado para ${username}`);
         });
 
+        const lastRankingMessage = {};
+        
         bot.onText(/^\/ranking$/, async (msg) => {
             console.log('📊 Procesando comando /ranking...');
 
@@ -317,6 +319,17 @@ async function start() {
                     return;
                 }
 
+                // Si ya existe un ranking enviado en este chat, borrarlo
+                if (lastRankingMessage[chatId]) {
+                    try {
+                        await bot.deleteMessage(chatId, lastRankingMessage[chatId]);
+                        console.log(`🗑 Ranking anterior eliminado en chat ${chatId}`);
+                    } catch (err) {
+                        console.warn('⚠️ No se pudo borrar el ranking anterior:', err.message);
+                    }
+                }
+
+                // Construir mensaje del ranking
                 let message = '🏆 *TOP 10 - Usuarios que más han invitado:*\n\n';
                 ranking.forEach((user, index) => {
                     const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`;
@@ -325,7 +338,10 @@ async function start() {
 
                 message += '\n👑 *Comando ejecutado por administrador*';
 
-                await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+                // Enviar el nuevo mensaje y guardar su ID
+                const sentMessage = await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+                lastRankingMessage[chatId] = sentMessage.message_id;
+
                 console.log(`✅ Ranking enviado por admin: ${username}`);
             } catch (error) {
                 console.error('❌ Error mostrando ranking:', error);
