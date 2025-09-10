@@ -462,9 +462,10 @@ async function start() {
                 );
                 
                 if(isSuccess)
-                    await bot.sendMessage(
+                    await sendTemporaryMessage(
                         chat.id,
-                        `👋 ¡Bienvenido ${new_chat_member.user.first_name}!\n✨ Invitado por: @${from.username || from.first_name}`
+                        `👋 ¡Bienvenido ${new_chat_member.user.first_name}!\n✨ Invitado por: @${from.username || from.first_name}`,
+                        10000
                     );
             }
         });
@@ -508,12 +509,6 @@ async function start() {
                 const user = msg.new_chat_member;
                 console.log("👋 Nuevo usuario:", user.username || user.first_name);
 
-                await bot.sendMessage(
-                    chat.id,
-                    `👋 ¡Bienvenido ${user.first_name}!\n` +
-                    `✨ Invitado por: @${msg.from.username || msg.from.first_name}`
-                );
-
                 const inviterId = msg.from.id;
                 const inviterUsername = msg.from.username || msg.from.first_name;
                 const invitedId = msg.new_chat_member.user.id;
@@ -529,10 +524,11 @@ async function start() {
                 console.log("✅ Invitación procesada");
 
                 if (isSuccess) {
-                    await bot.sendMessage(
+                    await sendTemporaryMessage(
                         chat.id,
                         `👋 ¡Bienvenido ${msg.new_chat_member.user.first_name}!\n` +
-                        `✨ Invitado por: @${inviterUsername}`
+                        `✨ Invitado por: @${inviterUsername}`,
+                        30000
                     );
                     console.log("✅ Mensaje de bienvenida enviado");
                 }
@@ -542,9 +538,10 @@ async function start() {
                 const user = msg.left_chat_member;
                 console.log("👋 Usuario salió:", user.username || user.first_name);
 
-                await bot.sendMessage(
+                await sendTemporaryMessage(
                     chat.id,
-                    `👋 @${user.username} salió del grupo`
+                    `👋 @${user.username} salió del grupo`,
+                    10000
                 );
             }
         });
