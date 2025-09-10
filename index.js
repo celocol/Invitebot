@@ -437,7 +437,7 @@ async function start() {
                         }
                     }
 
-                    await bot.sendMessage(chat.id, `👋 @${username} salió del grupo`);
+                    await sendTemporaryMessage(chat.id, `👋 @${username} salió del grupo`, 10000);
                 } catch (err) {
                     console.error("❌ Error procesando salida de usuario:", err);
                 }
@@ -465,7 +465,7 @@ async function start() {
                     await sendTemporaryMessage(
                         chat.id,
                         `👋 ¡Bienvenido ${new_chat_member.user.first_name}!\n✨ Invitado por: @${from.username || from.first_name}`,
-                        10000
+                        30000
                     );
             }
         });
