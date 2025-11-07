@@ -183,10 +183,10 @@ async function start() {
             bot = new TelegramBot(token, { polling: false });
 
             // Configurar webhook en Telegram
-            await bot.setWebHook(WEBHOOK_URL, {
+            await bot.setWebHook("https://celo-col-invitations-bot.up.railway.app/webhook", {
                 allowed_updates: ["*"]
             });
-            console.log(`✅ Webhook configurado: ${WEBHOOK_URL}`);
+            console.log(`✅ Webhook configurado: ${""}`);
 
             // Middleware para recibir updates
             app.use(express.json());
