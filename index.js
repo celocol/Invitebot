@@ -175,21 +175,26 @@ async function start() {
         if (process.env.NODE_ENV === "production") {
             console.log("🔄 Configurando webhook en producción...");
 
-            const railwayUrl =
+            const rawServiceName =
                 process.env.RAILWAY_PUBLIC_DOMAIN ||
                 process.env.RAILWAY_STATIC_URL ||
                 process.env.PUBLIC_URL ||
                 `${process.env.RAILWAY_SERVICE_NAME || "app"}.up.railway.app`;
 
-            const WEBHOOK_URL = `https://${railwayUrl}/webhook`;
+            // Sanear espacios y mayúsculas
+            const safeServiceName = rawServiceName
+                .toLowerCase()
+                .replace(/\s+/g, '-') // reemplaza espacios por guiones
+                .replace(/[^a-z0-9.-]/g, ''); // elimina caracteres inválidos
+
+            const WEBHOOK_URL = `https://${safeServiceName}/webhook`;
+
+            console.log(`🔗 Intentando registrar webhook en: ${WEBHOOK_URL}`);
 
             bot = new TelegramBot(token, { polling: false });
 
-            // Configurar webhook en Telegram
-            await bot.setWebHook(WEBHOOK_URL, {
-                allowed_updates: ["*"]
-            });
-            console.log(`✅ Webhook configurado: ${WEBHOOK_URL}`);
+            await bot.setWebHook(WEBHOOK_URL, { allowed_updates: ["*"] });
+            console.log(`✅ Webhook configurado correctamente en Telegram`);
 
             // Middleware para recibir updates
             app.use(express.json());
