@@ -187,7 +187,7 @@ async function start() {
                 .replace(/\s+/g, '-') // reemplaza espacios por guiones
                 .replace(/[^a-z0-9.-]/g, ''); // elimina caracteres inválidos
 
-            const WEBHOOK_URL = `https://${safeServiceName}/webhook`;
+            const WEBHOOK_URL = process.env.WEBHOOK_URL;
 
             console.log(`🔗 Intentando registrar webhook en: ${WEBHOOK_URL}`);
 
