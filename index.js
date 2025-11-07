@@ -4,7 +4,7 @@ import TelegramBot from "node-telegram-bot-api";
 const app = express();
 app.use(express.json()); // 👈 Siempre antes del endpoint
 
-const token = process.env.TELEGRAM_TOKEN;
+const token = process.env.BOT_TOKEN;
 let bot;
 
 if (process.env.NODE_ENV === "production") {
