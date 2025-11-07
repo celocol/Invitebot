@@ -1,12 +1,13 @@
 import dotenv from "dotenv";
-dotenv.config();
+dotenv.config(); // 👈 carga el .env
+
 import express from "express";
 import TelegramBot from "node-telegram-bot-api";
 
 const app = express();
-app.use(express.json()); // 👈 Siempre antes del endpoint
+app.use(express.json());
 
-const token = process.env.BOT_TOKEN;
+const token = process.env.BOT_TOKEN; // 👈 correcto
 let bot;
 
 if (process.env.NODE_ENV === "production") {
@@ -17,7 +18,6 @@ if (process.env.NODE_ENV === "production") {
 
     bot = new TelegramBot(token, { polling: false });
 
-    // Registrar webhook antes de levantar el servidor
     try {
         await bot.setWebHook(WEBHOOK_URL, { allowed_updates: ["*"] });
         console.log(`✅ Webhook configurado correctamente en Telegram`);
@@ -25,7 +25,6 @@ if (process.env.NODE_ENV === "production") {
         console.error("❌ Error configurando webhook:", err.message);
     }
 
-    // 🔥 Asegurate que este endpoint exista y procese updates
     app.post("/webhook", (req, res) => {
         console.log("📩 Webhook recibido:", JSON.stringify(req.body, null, 2));
         bot.processUpdate(req.body);
@@ -36,7 +35,6 @@ if (process.env.NODE_ENV === "production") {
     bot = new TelegramBot(token, { polling: true });
 }
 
-// 🔥 El servidor se inicia después del webhook
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
     console.log(`🚀 Servidor Express en puerto ${PORT}`);
