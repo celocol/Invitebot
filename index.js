@@ -10,6 +10,9 @@ const PORT = process.env.PORT || 8080;
 let bot = null;
 let pool = null;
 
+// =======================
+// ⚙️ FUNCIONES AUXILIARES BOT
+// =======================
 async function createTables() {
     try {
         const connection = await pool.getConnection();
